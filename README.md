@@ -1,0 +1,38 @@
+# GuiyuX
+
+Windows 桌面收纳工具，采用 Rust 和 Win32。运行后点击主屏顶边的 GuiyuX 胶囊展开单行分类栏，点击右端上箭头或岛外可收起。从资源管理器拖入文件或文件夹可保存引用，进入对应分类后选择条目可通过 Windows 打开。右键胶囊选择「设置…」，可管理收纳、快捷栏、整理规则和界面语言。选择「退出」直接结束程序。收藏和设置会保留。
+
+## 编译与运行
+
+开发环境使用 Windows x64、Rust stable MSVC 工具链（本次验证版本为 1.99.1）、Visual Studio C++ Build Tools 和 Windows SDK。首次构建需要获取 Cargo.lock 锁定的依赖。
+
+```powershell
+.\build.ps1
+.\target\release\guiyux.exe
+```
+
+调试构建使用 `.\build.ps1 -Profile Debug`，程序位于 `target\debug\guiyux.exe`。脚本把源码复制到本机临时目录运行 Cargo，兼容当前工作区的清单读取问题。依赖编译缓存位于 `%LOCALAPPDATA%\GuiyuX-build\cargo-target`。普通本地检出也可以直接执行 `cargo run --locked` 或 `cargo build --release --locked`。
+
+## 模块维护
+
+| 入口 | 职责 |
+| --- | --- |
+| `src/main.rs` | 加载设置、单实例锁、切换语言、启动和退出 |
+| `src/config.rs` | 配置模型、默认值和同目录临时文件替换写入 |
+| `src/collection.rs` | 收藏归属、手动放置、快捷栏顺序及批量整理 |
+| `src/collection/classify.rs` | 应用标识、快捷方式目标、域名及文件类型的规则匹配 |
+| `src/language.rs` | 语言标识、系统语言解析和双语文案。新文案在同一个类型中补齐两种语言。 |
+| `src/ui/mod.rs` | Win32 消息循环、窗口注册、控件创建 |
+| `src/ui/island.rs` | 胶囊收展、文件投放、分类导航与分页浏览与系统打开动作 |
+| `src/ui/menu.rs` | 胶囊右键菜单、键盘选取和退出入口 |
+| `src/ui/menu/frame.rs` | 菜单外沿和悬停高亮的透明圆角绘制 |
+| `src/ui/settings.rs` | 原生设置窗口、收纳开关、快捷入口管理、规则编辑与语言切换 |
+| `src/ui/paint.rs` | 界面配色、离屏绘制、文字与圆角合成 |
+
+用户数据位于 `%LOCALAPPDATA%\GuiyuX\settings.json`。设置窗口按需创建，关闭时销毁。灵动岛静止时等待窗口消息。默认提供 11 个分类。快捷栏默认显示六个入口，顺序可在设置中调整。点「更多」会在同一灵动岛的快捷栏下方展开分类网格，再点一次可折回单行。图标使用无边框线形符号，鼠标移入时轻晃一次。
+
+- **收纳**支持切换自动整理、立即整理已有收藏和查看各分类。关闭自动整理后，新图标仍可收入「其他」。
+- **快捷栏**支持新建收纳文件夹、选择或更换本地目录、固定文件及调整位置。把图标拖到高亮的组可指定归属，拖到栏内插入线可固定入口。
+- **整理规则**支持按扩展名、完整文件名或应用标识匹配，可调整优先级、预览已有收藏的变化并保存。手动放置优先。
+
+产品范围、三种收纳形态与内存验证目标见[项目设计记录](.agents/notes/module.md)。

@@ -1,0 +1,36 @@
+---
+name: auditX
+description: Test-driven independent review for xflow or an existing Task's review obligation.
+---
+
+# auditX
+
+Use when xflow or the Task's retained review obligation requires independent evaluation.
+
+## Review
+
+1. Read the review task, fixed task acceptance refs, changed files, and relevant diff.
+2. Convert each applicable acceptance criterion into a focused executable test or check.
+3. Run the smallest useful test set.
+4. Record passed tests, failed cases, failure causes, and blocking dependencies.
+5. Inspect code manually only to explain a failed test or a named integration risk; do not perform a full static review by default.
+6. Match verification to change size: for small reversible changes, do not write tests that merely restate the implementation. Run the tests that fit the change; once they pass, expand or re-run scope only on new changes, failures, or unresolved issues.
+7. The reviewer identity must differ from the implementer; a self-check never substitutes for the independent verdict.
+
+If the project has no runnable test path, report `UNEVALUABLE` with the reason and the checks attempted. Never claim a test passed unless it was run. The Main Agent then decides: narrow the scope, add the missing checks, or accept with an explicit recorded risk.
+
+## Result Contract
+
+Return a concise Evaluation Result:
+
+- **Status**: PASS | NEEDS_FIX | UNEVALUABLE
+- **Tests Run**: [commands or checks]
+- **Passed**: [cases]
+- **Failed**: [case, observed result, likely cause, repair scope, regression risk]
+- **Blockers**: [dependency or environment issue, or None]
+
+For `NEEDS_FIX`, keep each failure compact enough for the Main Agent to turn directly into a Repair Packet. Distinguish local defects from cross-task integration findings when evidence supports it.
+
+evaluatorX is read-only for repository source and every Task. It may request focused tests through the host: rerun an exact Main-authored verification command, or provide temporary test content that the host executes against pinned source with writes limited to disposable fixtures. Test requests name the fixed AC they exercise. Actual commands, results and reviewer identity enter the existing evidence; no extra Task metadata or handoff document is needed.
+
+An embedded host must execute the evaluator's selected tests before accepting its verdict. Auditing implementor checks alone does not fulfill this obligation. Missing execution capability is UNEVALUABLE, a failed test is NEEDS_FIX, and neither may become PASS. Preserve source/acceptance hashes and reject drift. The Main Agent owns document updates and any follow-up implementation; xdel never dispatches evaluatorX.

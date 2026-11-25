@@ -1,0 +1,20 @@
+{
+  "name": "workflowx",
+  "version": "1.0.0",
+  "description": "Multi-agent orchestration framework with Socratic requirements discovery, task notes PRD management, and structured quality evaluation",
+  "author": {
+    "name": "TreeX"
+  },
+  "homepage": "https://github.com/TreeX-xx/WorkFlowX",
+  "repository": "https://github.com/TreeX-xx/WorkFlowX",
+  "license": "MIT",
+  "keywords": [
+    "multi-agent",
+    "orchestration",
+    "workflow",
+    "planning",
+    "evaluation",
+    "task-notes",
+    "requirements-discovery"
+  ]
+}
