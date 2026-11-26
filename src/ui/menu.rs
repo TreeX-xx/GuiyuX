@@ -196,21 +196,25 @@ impl Drop for Popup {
     }
 }
 
-pub(super) fn track(owner: HWND, pt: POINT, rows: Vec<Row>, flags: u32) -> io::Result<i32> {
+pub(super) fn track(owner: HWND, pt: POINT, rows: Vec<Row>) -> io::Result<u32> {
     let custom = !high_contrast();
     let popup = Popup::new(rows, custom.then(palette::system))?;
     unsafe {
         SetForegroundWindow(owner);
-        let _frame = custom.then(|| frame::Watch::start(&popup));
-        Ok(TrackPopupMenu(
+        let watch = custom.then(|| frame::Watch::start(&popup));
+        let command = TrackPopupMenu(
             popup.handle,
-            flags | TPM_RIGHTBUTTON | if custom { TPM_NOANIMATION } else { 0 },
+            TPM_RETURNCMD | TPM_RIGHTBUTTON | if custom { TPM_NOANIMATION } else { 0 },
             pt.x,
             pt.y,
             0,
             owner,
             null_mut(),
-        ))
+        );
+        Ok(watch
+            .as_ref()
+            .and_then(frame::Watch::confirmed)
+            .unwrap_or(command as u32))
     }
 }
 
@@ -230,7 +234,8 @@ pub(super) fn show(owner: HWND, lp: LPARAM) -> io::Result<()> {
             y: (lp >> 16) as i16 as i32,
         }
     };
-    track(owner, pt, main_rows(), 0).map(|_| ())
+    let selected = track(owner, pt, main_rows())?;
+    command(owner, selected).unwrap_or(Ok(()))
 }
 
 pub(super) fn command(owner: HWND, id: u32) -> Option<io::Result<()>> {

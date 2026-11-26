@@ -66,7 +66,7 @@ pub(super) fn context(hwnd: HWND, wp: WPARAM, lp: LPARAM) -> io::Result<()> {
     }
     rows.push(menu::Row::separator());
     rows.push(menu::Row::new(3, lang.text().settings, "\u{e713}"));
-    let command = menu::track(hwnd, pt, rows, TPM_RETURNCMD)?;
+    let command = menu::track(hwnd, pt, rows)?;
     match command {
         0 => return Ok(()),
         3 => return settings::open(),

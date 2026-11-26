@@ -13,11 +13,7 @@ impl Drop for Icon {
     }
 }
 thread_local! {static ICONS:RefCell<VecDeque<(PathBuf,Option<Icon>)>>=const{RefCell::new(VecDeque::new())};}
-pub(super) fn draw(dc: HDC, path: &Path, r: RECT) -> bool {
-    let side = 20.min(r.right - r.left - 6).min(r.bottom - r.top - 6);
-    if side < 8 {
-        return false;
-    }
+pub(super) fn draw(dc: HDC, path: &Path, x: i32, y: i32, side: i32) -> bool {
     ICONS.with_borrow_mut(|cache| {
         let previous = cache
             .iter()
@@ -41,17 +37,7 @@ pub(super) fn draw(dc: HDC, path: &Path, r: RECT) -> bool {
             )
         });
         let drawn = entry.1.as_ref().is_some_and(|icon| unsafe {
-            DrawIconEx(
-                dc,
-                (r.left + r.right - side) / 2,
-                (r.top + r.bottom - side) / 2,
-                icon.0,
-                side,
-                side,
-                0,
-                null_mut(),
-                DI_NORMAL,
-            ) != 0
+            DrawIconEx(dc, x, y, icon.0, side, side, 0, null_mut(), DI_NORMAL) != 0
         });
         cache.push_front(entry);
         cache.truncate(32);

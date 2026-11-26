@@ -390,41 +390,45 @@ fn draw(d: &DRAWITEMSTRUCT, ink: HDC) {
         return;
     }
 
-    let sway = motion::sway(id);
-    let shifted = |mut rect: RECT| {
-        let dx = sway.round() as i32;
-        rect.left += dx;
-        rect.right += dx;
-        rect
+    let tilt = motion::icon_tilt(id);
+    let row = nav::button_row(id);
+    let file = match row.as_ref().map(|row| &row.action) {
+        Some(nav::Action::Open(Shortcut::Item(path))) => Some(path.as_path()),
+        _ => None,
     };
     let symbol = match id {
         HEADER if nav::toolbar() => Some(art::Symbol::Up),
         HEADER | PREV => Some(art::Symbol::Left),
         NEXT => Some(art::Symbol::Right),
-        id if nav::bar_slot(id) => nav::button_row(id).map(|r| r.symbol),
+        id if nav::bar_slot(id) => row.as_ref().map(|row| row.symbol),
         _ => None,
     };
     if let Some(symbol) = symbol {
-        if let Some(nav::Row {
-            action: nav::Action::Open(Shortcut::Item(path)),
-            ..
-        }) = nav::button_row(id)
-        {
-            art::draw(dc, r, art::Symbol::Item, hover, focused, pressed, 0.);
-            if item_icon::draw(dc, &path, shifted(r)) {
-                return;
-            }
-        }
-        art::draw(dc, r, symbol, hover, focused, pressed, sway);
+        art::draw(
+            dc,
+            r,
+            art::Icon { symbol, file },
+            hover,
+            focused,
+            pressed,
+            tilt,
+        );
         return;
     }
     let shade = art::file_row(dc, r, hover, focused, pressed);
-    if let Some(row) = nav::button_row(id) {
-        let icon_rect = shifted(area(8, 6, 44, 42));
-        if !matches!(&row.action,nav::Action::Open(Shortcut::Item(path)) if item_icon::draw(dc,path,icon_rect))
-        {
-            art::emblem(dc, icon_rect, row.symbol, shade, SILVER);
-        }
+    if let Some(row) = row.as_ref() {
+        let icon_rect = area(8, 6, 44, 42);
+        art::emblem(
+            dc,
+            icon_rect,
+            art::Icon {
+                symbol: row.symbol,
+                file,
+            },
+            shade,
+            SILVER,
+            tilt,
+        );
         let board = VIEW.get() == View::More;
         let left = if board { 45 } else { 52 };
         island_text(

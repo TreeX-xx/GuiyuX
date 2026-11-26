@@ -5,6 +5,7 @@ use windows_sys::Win32::{
         DWMWCP_DEFAULT, DWMWCP_DONOTROUND,
     },
     System::Threading::GetCurrentThreadId,
+    UI::Input::KeyboardAndMouse::VK_RETURN,
     UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
 };
 
@@ -18,12 +19,23 @@ struct Frame {
     added_layer: Cell<bool>,
     disabled: Cell<bool>,
     selected: Cell<u32>,
+    confirmed: Cell<Option<u32>>,
     backdrop: std::cell::RefCell<Option<glass::Backdrop>>,
     last: Cell<Option<(i32, i32, u32)>>,
 }
 
+impl Frame {
+    fn highlighted_command(&self, index: i32) -> Option<u32> {
+        let command = self.items.get(usize::try_from(index).ok()?)?.row.id;
+        let state = unsafe { GetMenuState(self.menu, index as u32, MF_BYPOSITION) };
+        let relevant = MF_HILITE | MF_POPUP | MF_SEPARATOR | MF_DISABLED | MF_GRAYED;
+        (state & relevant == MF_HILITE).then_some(command)
+    }
+}
+
 thread_local! {
     static FRAMES: std::cell::RefCell<Vec<Rc<Frame>>> = const { std::cell::RefCell::new(Vec::new()) };
+    static ACTIVE_MENU: Cell<HMENU> = const { Cell::new(null_mut()) };
     static RESTORE_SHADOW: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -40,6 +52,7 @@ fn register_popup(popup: &Popup, frames: &mut Vec<Rc<Frame>>) {
         added_layer: Cell::default(),
         disabled: Cell::default(),
         selected: Cell::default(),
+        confirmed: Cell::default(),
         backdrop: Default::default(),
         last: Cell::default(),
     }));
@@ -50,6 +63,7 @@ fn register_popup(popup: &Popup, frames: &mut Vec<Rc<Frame>>) {
 
 pub(super) struct Watch {
     hook: HHOOK,
+    input_hook: HHOOK,
     start: usize,
 }
 
@@ -60,7 +74,7 @@ impl Watch {
             register_popup(popup, frames);
             start
         });
-        // Scope the pre-show handler to this menu on our own UI thread.
+        // Both hooks live only while our own UI thread is tracking this popup.
         unsafe {
             Self {
                 start,
@@ -70,13 +84,26 @@ impl Watch {
                     null_mut(),
                     GetCurrentThreadId(),
                 ),
+                input_hook: SetWindowsHookExW(
+                    WH_MSGFILTER,
+                    Some(menu_input),
+                    null_mut(),
+                    GetCurrentThreadId(),
+                ),
             }
         }
+    }
+
+    pub(super) fn confirmed(&self) -> Option<u32> {
+        FRAMES.with_borrow(|frames| frames[self.start..].iter().find_map(|f| f.confirmed.get()))
     }
 }
 
 impl Drop for Watch {
     fn drop(&mut self) {
+        if !self.input_hook.is_null() {
+            unsafe { UnhookWindowsHookEx(self.input_hook) };
+        }
         if !self.hook.is_null() {
             unsafe { UnhookWindowsHookEx(self.hook) };
         }
@@ -86,6 +113,47 @@ impl Drop for Watch {
                 restore(hwnd, &frame);
             }
         }
+    }
+}
+
+fn confirmed_command(msg: &MSG) -> Option<(Rc<Frame>, u32)> {
+    let frame = find(ACTIVE_MENU.get())?;
+    let index = match msg.message {
+        WM_LBUTTONUP | WM_RBUTTONUP => unsafe {
+            // Submenus can fall back to native painting. Identify the tracked HMENU
+            // independently of its rendering surface, including after a drag.
+            let hwnd = WindowFromPoint(msg.pt);
+            if GetWindowThreadProcessId(hwnd, null_mut()) != GetCurrentThreadId()
+                || GetClassLongW(hwnd, GCW_ATOM) != MENU_CLASS_ATOM
+                || SendMessageW(hwnd, MN_GETHMENU, 0, 0) as HMENU != frame.menu
+            {
+                return None;
+            }
+            MenuItemFromPoint(null_mut(), frame.menu, msg.pt)
+        },
+        WM_KEYDOWN if msg.wParam == VK_RETURN as usize => frame
+            .items
+            .iter()
+            .position(|item| item.row.id == frame.selected.get())?
+            as i32,
+        _ => return None,
+    };
+    let command = frame.highlighted_command(index)?;
+    Some((frame, command))
+}
+
+// User32's selection fade can capture a layered menu row as black. End tracking
+// before that snapshot and let the owner dispatch the confirmed command once.
+unsafe extern "system" fn menu_input(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    unsafe {
+        if code == MSGF_MENU as i32
+            && let Some((frame, command)) = confirmed_command(&*(lp as *const MSG))
+            && EndMenu() != 0
+        {
+            frame.confirmed.set(Some(command));
+            return 1;
+        }
+        CallNextHookEx(null_mut(), code, wp, lp)
     }
 }
 
@@ -141,6 +209,7 @@ fn restore(hwnd: HWND, frame: &Frame) {
 }
 
 pub(super) fn select(menu: HMENU, wp: WPARAM) {
+    ACTIVE_MENU.set(menu);
     if let Some(frame) = find(menu) {
         let value = (wp & 0xffff) as u32;
         let id = if (wp >> 16) as u32 & MF_POPUP != 0 {
@@ -286,6 +355,53 @@ unsafe extern "system" fn procedure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confirmation_only_accepts_a_highlighted_enabled_command() {
+        let popup = Popup::new(
+            vec![
+                Row::new(42, "Open", ""),
+                Row::submenu(43, "Move", "", vec![Row::new(100, "Folder", "")]),
+                Row::separator(),
+            ],
+            Some(&palette::LIGHT),
+        )
+        .unwrap();
+        let _watch = Watch::start(&popup);
+        let frame = find(popup.handle).unwrap();
+        let enter = MSG {
+            message: WM_KEYDOWN,
+            wParam: VK_RETURN as usize,
+            ..Default::default()
+        };
+        assert_eq!(frame.highlighted_command(-1), None);
+        assert_eq!(frame.highlighted_command(3), None);
+        for (index, state, expected) in [
+            (0, MFS_ENABLED, None),
+            (0, MFS_HILITE, Some(42)),
+            (0, MFS_HILITE | MFS_DISABLED, None),
+            (1, MFS_HILITE, None),
+            (2, MFS_HILITE, None),
+        ] {
+            let info = MENUITEMINFOW {
+                cbSize: size_of::<MENUITEMINFOW>() as u32,
+                fMask: MIIM_STATE,
+                fState: state,
+                ..Default::default()
+            };
+            assert_ne!(unsafe { SetMenuItemInfoW(frame.menu, index, 1, &info) }, 0);
+            let selected = if index == 1 {
+                (MF_POPUP as usize) << 16 | index as usize
+            } else {
+                frame.items[index as usize].row.id as usize
+            };
+            select(frame.menu, selected);
+            assert_eq!(frame.highlighted_command(index as i32), expected);
+            assert_eq!(confirmed_command(&enter).map(|(_, id)| id), expected);
+        }
+        select(null_mut(), 0xffff_0000);
+        assert!(confirmed_command(&enter).is_none());
+    }
 
     #[test]
     fn icon_menu_and_destinations_share_hover_artwork_and_track_selections_independently() {

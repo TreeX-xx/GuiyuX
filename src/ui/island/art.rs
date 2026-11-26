@@ -9,10 +9,15 @@ pub(in crate::ui) enum Symbol {
     Category(crate::collection::Category),
     More,
     Less,
-    Item,
     Up,
     Left,
     Right,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct Icon<'a> {
+    pub symbol: Symbol,
+    pub file: Option<&'a std::path::Path>,
 }
 
 pub(super) fn mix(a: u32, b: u32, t: f32) -> u32 {
@@ -67,7 +72,24 @@ fn pen(width: f32, color: u32) -> HPEN {
     }
 }
 
-fn mark(dc: HDC, symbol: Symbol, cx: f32, cy: f32, size: f32, color: u32) {
+// Rotate only the icon in its local coordinates. The caller owns the saved DC.
+fn tilt_about(dc: HDC, cx: f32, cy: f32, radians: f32) {
+    if radians == 0. || unsafe { SetGraphicsMode(dc, GM_ADVANCED) } == 0 {
+        return;
+    }
+    let (sin, cos) = radians.sin_cos();
+    let rotation = XFORM {
+        eM11: cos,
+        eM12: sin,
+        eM21: -sin,
+        eM22: cos,
+        eDx: (1. - cos) * cx + sin * cy,
+        eDy: (1. - cos) * cy - sin * cx,
+    };
+    unsafe { ModifyWorldTransform(dc, &rotation, MWT_LEFTMULTIPLY) };
+}
+
+fn mark(dc: HDC, icon: Icon<'_>, cx: f32, cy: f32, size: f32, color: u32, tilt: f32) {
     use crate::collection::Category::*;
     let point = |x: f32, y: f32| POINT {
         x: px(cx + (x - 12.0) * size / 24.0),
@@ -92,10 +114,22 @@ fn mark(dc: HDC, symbol: Symbol, cx: f32, cy: f32, size: f32, color: u32) {
     };
     unsafe {
         let state = SaveDC(dc);
+        if state == 0 {
+            return;
+        }
+        tilt_about(dc, cx * SCALE as f32, cy * SCALE as f32, tilt);
+        let side = (size - 2.).min(20.);
+        if side >= 8.
+            && let Some(path) = icon.file
+            && item_icon::draw(dc, path, px(cx - side / 2.), px(cy - side / 2.), px(side))
+        {
+            RestoreDC(dc, state);
+            return;
+        }
         let stroke = pen(1.7 * size / 24.0, color);
         SelectObject(dc, stroke);
         SelectObject(dc, GetStockObject(NULL_BRUSH));
-        match symbol {
+        match icon.symbol {
             Symbol::Category(Office) => line(&[
                 (4, 4),
                 (20, 4),
@@ -164,7 +198,6 @@ fn mark(dc: HDC, symbol: Symbol, cx: f32, cy: f32, size: f32, color: u32) {
                     (21, 13),
                 ]);
             }
-            Symbol::Item => {}
             Symbol::More => {
                 for x in [4., 10.5, 17.] {
                     rect(x, 11., x + 2., 13., 2.);
@@ -184,29 +217,35 @@ fn button(
     dc: HDC,
     w: f32,
     h: f32,
-    symbol: Symbol,
+    icon: Icon<'_>,
     hover: f32,
     focused: bool,
     pressed: bool,
-    sway: f32,
+    tilt: f32,
 ) {
     let active = if focused || pressed { 1.0 } else { hover };
     if active > 0.0 && w > 4. && h > 2. {
         let shade = mix(BG, if focused { FOCUS_BG } else { HOVER_BG }, active);
         rounded(dc, [1.5, 1., w - 3., h - 2.], ROW_RADIUS as f32, shade);
     }
-    let nav = matches!(symbol, Symbol::Up | Symbol::Left | Symbol::Right);
+    let nav = matches!(icon.symbol, Symbol::Up | Symbol::Left | Symbol::Right);
     let size = (if nav { 17.0_f32 } else { 24.0_f32 })
         .min(w - 4.)
         .min(h - 4.);
     if size > 1.0 {
         mark(
             dc,
-            symbol,
-            w / 2. + sway,
-            h / 2. + if pressed { 0.6 } else { 0. },
+            icon,
+            w / 2.,
+            h / 2.
+                + if pressed && icon.file.is_none() {
+                    0.6
+                } else {
+                    0.
+                },
             size,
             mix(if nav { MUTED } else { SILVER }, WHITE, active),
+            tilt,
         );
     }
 }
@@ -239,17 +278,17 @@ fn resolve(samples: &[u32], w: usize, h: usize) -> Vec<u32> {
     pixels
 }
 
-pub(in crate::ui) fn draw(
+pub(super) fn draw(
     target: HDC,
     rect: RECT,
-    symbol: Symbol,
+    icon: Icon<'_>,
     hover: f32,
     focused: bool,
     pressed: bool,
-    sway: f32,
+    tilt: f32,
 ) {
     paint_control(target, rect, |dc, w, h| {
-        button(dc, w, h, symbol, hover, focused, pressed, sway)
+        button(dc, w, h, icon, hover, focused, pressed, tilt)
     });
 }
 
@@ -266,9 +305,9 @@ pub(super) fn file_row(target: HDC, rect: RECT, hover: f32, focused: bool, press
     shade
 }
 
-pub(in crate::ui) fn emblem(target: HDC, rect: RECT, symbol: Symbol, base: u32, ink: u32) {
+pub(super) fn emblem(target: HDC, rect: RECT, icon: Icon<'_>, base: u32, ink: u32, tilt: f32) {
     paint_on(target, rect, base, |dc, w, h| {
-        mark(dc, symbol, w / 2., h / 2., w.min(h) * 0.74, ink)
+        mark(dc, icon, w / 2., h / 2., w.min(h) * 0.74, ink, tilt)
     });
 }
 
@@ -321,6 +360,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn toolbar_and_grid_icons_tilt_around_their_center() {
+        const W: usize = 48;
+        const H: usize = 40;
+        let rect = area(0, 0, W as i32, H as i32);
+        let mut frame = Bitmap::new(W as i32, H as i32).unwrap();
+        let icon = Icon {
+            symbol: Symbol::Less,
+            file: None,
+        };
+        for grid in [false, true] {
+            for degrees in [-7.0_f32, 7.0] {
+                let tilt = degrees.to_radians();
+                if grid {
+                    emblem(frame.dc, rect, icon, BG, WHITE, tilt);
+                } else {
+                    draw(frame.dc, rect, icon, 1., false, false, tilt);
+                }
+                // A horizontal line tilts in opposite directions about the same midpoint.
+                let (mut mass, mut sum_x, mut sum_y, mut sum_xy) = (0., 0., 0., 0.);
+                for (i, pixel) in frame.pixels().iter().enumerate() {
+                    let weight = (*pixel as u8).saturating_sub(128) as f32;
+                    let x = (i % W) as f32 + 0.5 - W as f32 / 2.;
+                    let y = (i / W) as f32 + 0.5 - H as f32 / 2.;
+                    mass += weight;
+                    sum_x += x * weight;
+                    sum_y += y * weight;
+                    sum_xy += x * y * weight;
+                }
+                assert!(mass > 0.);
+                assert!((sum_x / mass).abs() < 0.25 && (sum_y / mass).abs() < 0.25);
+                assert!(degrees.signum() * sum_xy / mass > 1.);
+            }
+        }
+    }
+
+    #[test]
     fn hover_plate_has_partial_coverage_and_returns_to_idle() {
         let rect = RECT {
             left: 0,
@@ -333,7 +408,10 @@ mod tests {
             draw(
                 frame.dc,
                 rect,
-                Symbol::Category(crate::collection::Category::Media),
+                Icon {
+                    symbol: Symbol::Category(crate::collection::Category::Media),
+                    file: None,
+                },
                 hover,
                 false,
                 false,

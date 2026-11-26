@@ -54,19 +54,20 @@ pub(in crate::ui) fn animation_enabled() -> bool {
     enabled != 0
 }
 
-pub(in crate::ui) const SWAY_SECONDS: f32 = 0.32;
-pub(in crate::ui) fn icon_sway(elapsed: f32) -> f32 {
-    let t = (elapsed / SWAY_SECONDS).clamp(0., 1.);
-    (std::f32::consts::TAU * t).sin() * (1. - t) * 2.6
+// The icon pivots in place. See .agents/notes/module.md#当前工程.
+const TILT_SECONDS: f32 = 0.32;
+fn tilt_radians(elapsed: f32) -> f32 {
+    let t = (elapsed / TILT_SECONDS).clamp(0., 1.);
+    (std::f32::consts::TAU * t).sin() * (1. - t) * 9.0_f32.to_radians()
 }
-pub(super) fn sway(id: i32) -> f32 {
+pub(super) fn icon_tilt(id: i32) -> f32 {
     let hover = HOVER.get();
     if hover.target == id
         && id >= FIRST
         && id < FIRST + SLOTS as i32
         && let Some(start) = hover.started
     {
-        icon_sway(start.elapsed().as_secs_f32())
+        tilt_radians(start.elapsed().as_secs_f32())
     } else {
         0.
     }
@@ -143,7 +144,7 @@ pub(super) fn tick(hwnd: HWND) {
     if hover.started.is_none_or(|t| {
         t.elapsed().as_secs_f32()
             >= if (FIRST..FIRST + SLOTS as i32).contains(&hover.target) {
-                SWAY_SECONDS
+                TILT_SECONDS
             } else {
                 HOVER_SECONDS
             }
@@ -183,11 +184,13 @@ pub(super) unsafe extern "system" fn input(
 mod tests {
     use super::*;
     #[test]
-    fn hover_nudge_returns_to_rest() {
-        assert_eq!(icon_sway(0.), 0.);
-        assert!(icon_sway(SWAY_SECONDS * 0.25) > 1.);
-        assert!(icon_sway(SWAY_SECONDS * 0.75) < -0.5);
-        assert_eq!(icon_sway(SWAY_SECONDS), 0.);
-        assert_eq!(icon_sway(5.), 0.);
+    fn hover_tilt_dampens_and_returns_upright() {
+        assert_eq!(tilt_radians(0.), 0.);
+        let first = tilt_radians(TILT_SECONDS * 0.25).to_degrees();
+        let rebound = tilt_radians(TILT_SECONDS * 0.75).to_degrees();
+        assert!((5.0..9.0).contains(&first));
+        assert!((-first..0.).contains(&rebound));
+        assert_eq!(tilt_radians(TILT_SECONDS), 0.);
+        assert_eq!(tilt_radians(5.), 0.);
     }
 }
