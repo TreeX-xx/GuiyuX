@@ -32,6 +32,7 @@ struct Backdrop {
     _queue: Option<DispatcherQueueController>,
     window: HostWindow,
     rect: Option<RECT>,
+    outline: Option<capsule::Outline>,
 }
 
 fn enable_host_brush(hwnd: HWND) -> windows::core::Result<()> {
@@ -127,19 +128,22 @@ impl Backdrop {
             _queue: queue,
             window,
             rect: None,
+            outline: None,
         })
     }
 
     fn place(&mut self, island: HWND, rect: RECT) -> windows::core::Result<()> {
         let (w, h) = (rect.right - rect.left, rect.bottom - rect.top);
-        if self
-            .rect
-            .is_none_or(|old| old.right - old.left != w || old.bottom - old.top != h)
-        {
-            let radius = (ISLAND_RADIUS as f32).min(w.min(h) as f32 / 2.);
+        let outline = capsule::Outline::current(w, h);
+        if self.outline != Some(outline) {
+            let radius = outline.diameter as f32 / 2.;
+            self.shape.SetOffset(Vector2 {
+                X: outline.x as f32,
+                Y: outline.y as f32,
+            })?;
             self.shape.SetSize(Vector2 {
-                X: w as f32,
-                Y: h as f32,
+                X: outline.w as f32,
+                Y: outline.h as f32,
             })?;
             self.shape.SetCornerRadius(Vector2 {
                 X: radius,
@@ -147,9 +151,15 @@ impl Backdrop {
             })?;
             // The compositor clip only affects pixels. Match the HWND's hit
             // region too, so the desktop still receives clicks in the corners.
-            let diameter = (2 * ISLAND_RADIUS).min(w).min(h);
             unsafe {
-                let region = CreateRoundRectRgn(0, 0, w + 1, h + 1, diameter, diameter);
+                let region = CreateRoundRectRgn(
+                    outline.x,
+                    outline.y,
+                    outline.x + outline.w + 1,
+                    outline.y + outline.h + 1,
+                    outline.diameter,
+                    outline.diameter,
+                );
                 if region.is_null() {
                     return Err(windows::core::Error::from_thread());
                 }
@@ -159,10 +169,13 @@ impl Backdrop {
                     return Err(error);
                 }
             }
-        } else if self
-            .rect
-            .is_some_and(|old| old.left == rect.left && old.top == rect.top)
-            && unsafe { GetWindow(self.window.0, GW_HWNDPREV) } == island
+            self.outline = Some(outline);
+        } else if self.rect.is_some_and(|old| {
+            old.left == rect.left
+                && old.top == rect.top
+                && old.right == rect.right
+                && old.bottom == rect.bottom
+        }) && unsafe { GetWindow(self.window.0, GW_HWNDPREV) } == island
         {
             return Ok(());
         }

@@ -14,11 +14,15 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 
 mod actions;
 pub(super) mod art;
+mod autohide;
 mod backdrop;
+mod capsule;
 mod drag;
 mod item_icon;
+mod layout;
 mod nav;
 use crate::collection::{self, Group, Placement, Shortcut};
+use crate::config::{Dock, DockEdge, DockMode, Settings};
 use collection::BAR_CAPACITY;
 use nav::{VIEW, View};
 pub(super) mod motion;
@@ -125,7 +129,7 @@ pub(super) fn grid_key(msg: &MSG) -> bool {
     true
 }
 
-pub(super) fn open() -> io::Result<()> {
+pub(super) fn open(settings: Settings) -> io::Result<()> {
     let hwnd = window(
         "GuiyuX.Island",
         "GuiyuX",
@@ -148,6 +152,7 @@ pub(super) fn open() -> io::Result<()> {
     }
     tips::install(hwnd)?;
     drag::register(hwnd)?;
+    nav::set_data(settings);
     refresh();
     unsafe {
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -156,7 +161,17 @@ pub(super) fn open() -> io::Result<()> {
 }
 
 pub(super) fn collection_changed() -> io::Result<()> {
+    let old = nav::dock();
     nav::reload()?;
+    if nav::dock() != old {
+        let hwnd = ISLAND.get();
+        tips::dismiss();
+        autohide::reset(hwnd);
+        unsafe { KillTimer(hwnd, RESIZE_TIMER) };
+        TRANSITION.set(None);
+        FEEDBACK.set(None);
+        finish_collapse();
+    }
     refresh();
     Ok(())
 }
@@ -179,6 +194,12 @@ fn finish_collapse() {
     EXPANDED.set(false);
     VIEW.set(View::Home);
     PAGE.set(0);
+}
+
+fn expand_home() {
+    EXPANDED.set(true);
+    nav::show(View::Home);
+    autohide::check_later();
 }
 
 fn start_transition(hwnd: HWND, closing: bool, keep_content: bool) {
@@ -212,6 +233,7 @@ fn collapse(hwnd: HWND) {
     if !EXPANDED.get() || TRANSITION.get().is_some_and(|m| m.closing) {
         return;
     }
+    autohide::dismiss(hwnd);
     tips::dismiss();
     start_transition(hwnd, true, false);
     refresh();
@@ -258,38 +280,23 @@ pub(super) fn refresh() {
         let paging = count > size;
         let category_bar = expanded && nav::toolbar();
         let board = expanded && view == View::More;
-        let cell_width = tiles::BAR_CELL;
-        let bar_width = 16 + cell_width * nav::bar_len() as i32 + 32;
-        let w = if board {
-            bar_width
-                .max(tiles::width(count))
-                .min(unsafe { GetSystemMetrics(SM_CXSCREEN) } - 12)
-        } else if category_bar {
-            bar_width
+        let dock = nav::dock();
+        let bar = layout::Toolbar::new(dock.edge, nav::bar_len());
+        let feedback = FEEDBACK.get().is_some();
+        let footer = paging || feedback;
+        let (w, h) = if category_bar {
+            bar.size(board, count, footer)
         } else if expanded {
-            40 + tiles::width(count)
-        } else if FEEDBACK.get().is_some() {
-            178
+            (40 + tiles::width(count), tiles::height(count, footer))
         } else {
-            100 + (hover * 15.0).round() as i32
-        };
-        let footer = paging || FEEDBACK.get().is_some();
-        let h = if board {
-            tiles::BAR_DEPTH + tiles::height(count, footer)
-        } else if category_bar {
-            tiles::BAR_DEPTH + if footer { 26 } else { 0 }
-        } else if expanded {
-            tiles::height(count, footer)
-        } else if FEEDBACK.get().is_some() {
-            36
-        } else {
-            18 + (hover * 2.0).round() as i32
+            dock.idle_size(hover, feedback)
         };
         let (w, h) = if let Some(m) = TRANSITION.get() {
             let t = progress;
             let (w, h, blend, alpha) = if m.closing {
                 let eased = t * t * (3.0 - 2.0 * t);
-                (100, 18, eased, m.alpha * (1.0 - t * 1.6).max(0.0))
+                let (w, h) = dock.idle_size(0., feedback);
+                (w, h, eased, m.alpha * (1.0 - t * 1.6).max(0.0))
             } else {
                 (
                     w,
@@ -307,26 +314,11 @@ pub(super) fn refresh() {
         };
         // Commit bounds with the finished layered bitmap. Resizing the live
         // window first can expose its previous frame around the moving edge.
-        let left = (unsafe { GetSystemMetrics(SM_CXSCREEN) } - w) / 2;
-        FRAME_RECT.set(RECT {
-            left,
-            top: 8,
-            right: left + w,
-            bottom: 8 + h,
-        });
-        // Keep each symbol inside the moving silhouette while the row fans out.
-        let bar_slot = |x: i32, width: i32| {
-            let span = w.min(bar_width);
-            let edge = |n: i32| (w - span) / 2 + (n * span + bar_width / 2) / bar_width;
-            let height = h.min(tiles::BAR_DEPTH);
-            let inset = (height + 5) / 10;
-            [
-                edge(x),
-                inset,
-                edge(x + width) - edge(x),
-                height - 2 * inset,
-            ]
-        };
+        let frame = dock.frame(layout::work_area(), w, h);
+        FRAME_RECT.set(frame);
+        let (w, h) = (frame.right - frame.left, frame.bottom - frame.top);
+        let (strip, body) = dock.edge.split(w, h);
+        let body = if category_bar { body } else { area(0, 0, w, h) };
         place(
             hwnd,
             HEADER,
@@ -338,7 +330,7 @@ pub(super) fn refresh() {
                 text.categories
             },
             if category_bar {
-                bar_slot(bar_width - 38, 32)
+                bar.slot(strip, bar.length - 38, 32)
             } else if expanded {
                 [4, 8, 34, 44]
             } else {
@@ -350,9 +342,9 @@ pub(super) fn refresh() {
             let id = FIRST + slot as i32;
             let row = nav::button_row(id);
             let rect = if category_bar && slot < BAR_SLOTS {
-                bar_slot(8 + slot as i32 * cell_width, cell_width)
+                bar.slot(strip, 8 + slot as i32 * layout::CELL, layout::CELL)
             } else if board && slot >= BAR_SLOTS {
-                tiles::cell(area(0, tiles::BAR_DEPTH, w, h), count, slot - BAR_SLOTS)
+                tiles::cell(body, count, slot - BAR_SLOTS)
             } else {
                 tiles::cell(area(40, 0, w, h), count, slot)
             };
@@ -371,14 +363,14 @@ pub(super) fn refresh() {
             hwnd,
             PREV,
             "‹",
-            [12, h - 38, 48, 32],
+            [body.left + 12, body.bottom - 38, 48, 32],
             expanded && paging && start > 0,
         );
         place(
             hwnd,
             NEXT,
             "›",
-            [w - 60, h - 38, 48, 32],
+            [body.right - 60, body.bottom - 38, 48, 32],
             expanded && paging && start + rows < count,
         );
         schedule_frame(hwnd);
@@ -411,6 +403,10 @@ fn draw(d: &DRAWITEMSTRUCT, ink: HDC) {
         motion::strength(id)
     };
     if id == HEADER && !expanded {
+        // The auto-hide capsule is composited as one clipped surface.
+        if capsule::active() {
+            return;
+        }
         let shade = if pressed {
             0x484139
         } else if focused {
@@ -432,7 +428,12 @@ fn draw(d: &DRAWITEMSTRUCT, ink: HDC) {
         _ => None,
     };
     let symbol = match id {
-        HEADER if nav::toolbar() => Some(art::Symbol::Up),
+        HEADER if nav::toolbar() => Some(match nav::dock().edge {
+            DockEdge::Top => art::Symbol::Up,
+            DockEdge::Bottom => art::Symbol::Down,
+            DockEdge::Left => art::Symbol::Left,
+            DockEdge::Right => art::Symbol::Right,
+        }),
         HEADER | PREV => Some(art::Symbol::Left),
         NEXT => Some(art::Symbol::Right),
         _ => None,
@@ -540,27 +541,30 @@ pub(super) fn appearance_changed() {
 
 fn paint_background(dc: HDC, ink: HDC, mut r: RECT) {
     fill(dc, &r, BG);
-    if EXPANDED.get() && VIEW.get() == View::More {
-        fill(
-            dc,
-            &area(
-                12,
-                tiles::BAR_DEPTH - 1,
-                (r.right - 12).max(13),
-                tiles::BAR_DEPTH,
-            ),
-            EDGE,
-        );
+    if EXPANDED.get() && nav::toolbar() {
+        let edge = nav::dock().edge;
+        let (strip, body) = edge.split(r.right, r.bottom);
+        if VIEW.get() == View::More {
+            let divider = match edge {
+                DockEdge::Top => area(12, strip.bottom - 1, r.right - 12, strip.bottom),
+                DockEdge::Bottom => area(12, strip.top, r.right - 12, strip.top + 1),
+                DockEdge::Left => area(strip.right - 1, 12, strip.right, r.bottom - 12),
+                DockEdge::Right => area(strip.left, 12, strip.left + 1, r.bottom - 12),
+            };
+            fill(dc, &divider, EDGE);
+        }
+        r = body;
     }
     if EXPANDED.get() && VIEW.get() == View::Home {
         if let Some(message) = FEEDBACK.get() {
-            r.top = tiles::BAR_DEPTH;
             island_text(ink, r, message, 14, SILVER, DT_CENTER);
         }
     } else if EXPANDED.get() {
         let n = nav::len();
         if n == 0 {
-            r.left = 40;
+            if !nav::toolbar() {
+                r.left = 40;
+            }
             island_text(
                 ink,
                 r,
@@ -639,11 +643,15 @@ pub(super) unsafe extern "system" fn procedure(
             }
             result
         }
-        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_DWMCOMPOSITIONCHANGED => {
+        WM_DISPLAYCHANGE | WM_SETTINGCHANGE | WM_THEMECHANGED | WM_DWMCOMPOSITIONCHANGED => {
             if msg == WM_DWMCOMPOSITIONCHANGED {
                 backdrop::reset();
             }
-            appearance_changed();
+            if matches!(msg, WM_DISPLAYCHANGE | WM_SETTINGCHANGE) && !ISLAND.get().is_null() {
+                refresh();
+            } else {
+                appearance_changed();
+            }
             unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
         }
         WM_ERASEBKGND => 1,
@@ -661,6 +669,21 @@ pub(super) unsafe extern "system" fn procedure(
             }
             0
         }
+        WM_ENTERMENULOOP | WM_EXITMENULOOP => {
+            autohide::IN_MENU.set(msg == WM_ENTERMENULOOP);
+            if msg == WM_EXITMENULOOP {
+                autohide::check_later();
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
+        WM_MOUSEMOVE if nav::dock().mode == DockMode::AutoHide => {
+            autohide::pointer_move(hwnd, wp);
+            0
+        }
+        WM_MOUSELEAVE => {
+            autohide::pointer_left();
+            0
+        }
         WM_DROPFILES => {
             if let Err(e) = receive_drop(wp as HDROP) {
                 report(&e);
@@ -673,6 +696,10 @@ pub(super) unsafe extern "system" fn procedure(
         }
         WM_TIMER if wp == RESIZE_TIMER => {
             refresh();
+            0
+        }
+        WM_TIMER if wp == autohide::LEAVE_TIMER => {
+            autohide::check(hwnd);
             0
         }
         WM_TIMER if wp == HOVER_TIMER => {
@@ -688,7 +715,7 @@ pub(super) unsafe extern "system" fn procedure(
             0
         }
         WM_ACTIVATE if wp & 0xffff == 0 => {
-            if !drag::active() {
+            if !drag::active() && !autohide::IN_MENU.get() {
                 collapse(hwnd);
             }
             0
@@ -724,21 +751,12 @@ pub(super) unsafe extern "system" fn procedure(
                         }
                         return 0;
                     }
-                    VIEW.set(View::Home);
-                    {
-                        if let Err(e) = nav::reload() {
-                            report(&e);
-                            return 0;
-                        }
+                    if let Err(e) = nav::reload() {
+                        report(&e);
+                        return 0;
                     }
-                    FEEDBACK.set(None);
-                    motion::clear_hover();
-                    unsafe {
-                        SetForegroundWindow(hwnd);
-                    }
-                    start_transition(hwnd, false, false);
-                    EXPANDED.set(true);
-                    refresh();
+                    unsafe { SetForegroundWindow(hwnd) };
+                    expand_home();
                 }
                 PREV | NEXT => {
                     PAGE.set(if id == PREV {

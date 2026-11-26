@@ -19,8 +19,17 @@ impl Hover {
         let Some(start) = self.started else {
             return target;
         };
-        let t = (now.duration_since(start).as_secs_f32() / HOVER_SECONDS).min(1.0);
-        let eased = t * t * (3.0 - 2.0 * t);
+        let elapsed = now.duration_since(start).as_secs_f32();
+        let eased = if BUTTONS[slot] == HEADER && capsule::active() {
+            let remaining = (target - self.from[slot]).abs();
+            if remaining == 0. {
+                return target;
+            }
+            capsule::ease_out(elapsed * 1000. / (capsule::STYLE.slide_ms as f32 * remaining))
+        } else {
+            let t = (elapsed / HOVER_SECONDS).min(1.);
+            t * t * (3. - 2. * t)
+        };
         self.from[slot] + (target - self.from[slot]) * eased
     }
 }
@@ -91,15 +100,19 @@ pub(super) fn restore_pointer() {
     }
 }
 fn track(hwnd: HWND, id: i32) {
+    if track_leave(hwnd) {
+        target(id);
+    }
+}
+
+pub(super) fn track_leave(hwnd: HWND) -> bool {
     let mut tracking = TRACKMOUSEEVENT {
         cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
         dwFlags: TME_LEAVE,
         hwndTrack: hwnd,
         dwHoverTime: 0,
     };
-    if unsafe { TrackMouseEvent(&mut tracking) } != 0 {
-        target(id);
-    }
+    unsafe { TrackMouseEvent(&mut tracking) != 0 }
 }
 
 pub(super) fn strength(id: i32) -> f32 {
@@ -117,7 +130,7 @@ fn redraw(hwnd: HWND) {
     }
 }
 
-fn target(id: i32) {
+pub(super) fn target(id: i32) {
     let hwnd = ISLAND.get();
     let now = Instant::now();
     let old = HOVER.get();
@@ -145,6 +158,8 @@ pub(super) fn tick(hwnd: HWND) {
         t.elapsed().as_secs_f32()
             >= if (FIRST..FIRST + SLOTS as i32).contains(&hover.target) {
                 TILT_SECONDS
+            } else if capsule::active() {
+                capsule::STYLE.slide_ms as f32 / 1000.
             } else {
                 HOVER_SECONDS
             }
@@ -171,10 +186,18 @@ pub(super) unsafe extern "system" fn input(
         return 0;
     }
     match msg {
-        WM_MOUSEMOVE if HOVER.get().target != id => {
-            track(hwnd, id);
+        WM_MOUSEMOVE => {
+            if !capsule::active() && HOVER.get().target != id {
+                track(hwnd, id);
+            }
+            autohide::pointer_move(hwnd, wp);
         }
-        WM_MOUSELEAVE if HOVER.get().target == id => target(0),
+        WM_MOUSELEAVE => {
+            if !capsule::active() && HOVER.get().target == id {
+                target(0);
+            }
+            autohide::pointer_left();
+        }
         _ => {}
     }
     unsafe { DefSubclassProc(hwnd, msg, wp, lp) }

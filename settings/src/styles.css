@@ -100,9 +100,21 @@ small { font-size: 12px; }
 .option[data-highlighted] { background: #454548; }
 .option .icon { font-size: 12px; color: var(--accent); }
 .material-preview { height: clamp(90px, 23vh, 148px); display: grid; place-items: center; border-radius: 11px; border: 1px solid #504e50; margin-bottom: 14px; overflow: hidden; background: radial-gradient(ellipse at 28% 120%, #a88f81, transparent 60%), linear-gradient(128deg,#424b53 12%,#707b82 42%,#42454c 42.2%,#33343c 75%,#656069); }
-.sample-island { width: 120px; height: 37px; display: flex; justify-content: center; align-items: center; gap: 10px; border-radius: 22px; border: 1px solid #fffa; background: rgb(30 31 34 / var(--opacity)); }
+.sample-island { width: var(--cap-length); height: var(--cap-depth); display: flex; justify-content: center; align-items: center; gap: var(--cap-gap); border-radius: 999px; border: 1px solid rgb(255 255 255 / var(--cap-border)); background: rgb(var(--cap-fill) / var(--opacity)); }
 .sample-island.frosted { backdrop-filter: blur(10px); }
-.sample-island i { width: 7px; height: 7px; border-radius: 50%; background: #eee9df; box-shadow: 0 1px 2px #0008; }
+.sample-island i { width: var(--cap-dot); height: var(--cap-dot); border-radius: 50%; background: rgb(var(--cap-ink)); box-shadow: 0 1px 2px #0008; }
+.material-preview { padding: 7px; }
+.material-preview[data-edge="top"] { align-items: start; --tuck-y: calc(var(--cap-peek) - 100%); }
+.material-preview[data-edge="bottom"] { align-items: end; --tuck-y: calc(100% - var(--cap-peek)); }
+.material-preview[data-edge="left"] { justify-items: start; --tuck-x: calc(var(--cap-peek) - 100%); }
+.material-preview[data-edge="right"] { justify-items: end; --tuck-x: calc(100% - var(--cap-peek)); }
+.material-preview:is([data-edge="left"], [data-edge="right"]) .sample-island { flex-direction: column; width: var(--cap-side-depth); height: min(100%, var(--cap-side-length)); }
+.material-preview[data-mode="autoHide"] { padding: 0; }
+.material-preview[data-mode="autoHide"] .sample-island:not(:hover) { transform: translate(var(--tuck-x, 0), var(--tuck-y, 0)); }
+@media (prefers-reduced-motion: no-preference) {
+  .sample-island { transition: transform var(--cap-time) ease-out; }
+}
+.dock-hint { display: block; }
 .slider-setting { padding: 0 16px 12px; }
 .slider-setting .setting-row { padding: 9px 0 3px; }
 .percent { display: flex; align-items: center; gap: 5px; color: var(--muted); }

@@ -2,8 +2,17 @@ import React, { useEffect, useRef, useState } from "react";
 import * as Slider from "@radix-ui/react-slider";
 import { Choice, useText } from "./components";
 import { previewAppearance, commitAppearance } from "./bridge";
+import capsule from "../../assets/dock-capsule.json";
 
-export default function Appearance({ state, saved, failed }) {
+const capsuleStyle = {
+  "--cap-length": `${capsule.length}px`, "--cap-depth": `${capsule.depth}px`,
+  "--cap-side-length": `${capsule.sideLength}px`, "--cap-side-depth": `${capsule.sideDepth}px`,
+  "--cap-peek": `${capsule.peek}px`, "--cap-dot": `${capsule.dot}px`, "--cap-gap": `${capsule.gap}px`,
+  "--cap-time": `${capsule.slideMs}ms`, "--cap-fill": capsule.fill.join(" "),
+  "--cap-ink": capsule.ink.join(" "), "--cap-border": capsule.borderAlpha / 255,
+};
+
+export default function Appearance({ state, run, saved, failed }) {
   const t = useText();
   const [style, setStyle] = useState(state.appearance);
   const [number, setNumber] = useState(String(style.transparency));
@@ -70,11 +79,25 @@ export default function Appearance({ state, saved, failed }) {
     }
   }
   return <>
-    <div className="material-preview" aria-hidden="true">
+    <div className="material-preview" aria-hidden="true" data-edge={state.dock.edge} data-mode={state.dock.mode} style={capsuleStyle}>
       <div className={'sample-island' + (style.frosted ? ' frosted' : '')}
         style={{"--opacity": 1 - style.transparency / 100}}><i/><i/><i/></div>
     </div>
     <section className="sheet">
+      <div className="setting-row"><label htmlFor="dock-edge">{t("停靠位置", "Dock position")}</label>
+        <Choice id="dock-edge" label={t("停靠位置", "Dock position")} value={state.dock.edge}
+          options={[["top", t("顶部", "Top")], ["bottom", t("底部", "Bottom")],
+            ["left", t("左侧", "Left")], ["right", t("右侧", "Right")]]}
+          onChange={edge => run({ type: "dockEdge", edge })}/>
+      </div>
+      <div className="setting-row"><div><label htmlFor="dock-mode">{t("显示方式", "Display mode")}</label>
+        <small className="dock-hint">{state.dock.mode === "autoHide"
+          ? t("移到边缘露出的圆弧上可滑出胶囊，点击打开快捷栏。", "Hover over the visible edge of the capsule, then click to open the shortcut bar.")
+          : t("点击胶囊展开快捷栏。", "Click the capsule to open the shortcut bar.")}</small></div>
+        <Choice id="dock-mode" label={t("显示方式", "Display mode")} value={state.dock.mode}
+          options={[["alwaysVisible", t("常驻", "Always visible")], ["autoHide", t("自动隐藏", "Auto-hide")]]}
+          onChange={mode => run({ type: "dockMode", mode })}/>
+      </div>
       <div className="setting-row"><label htmlFor="material">{t("背景效果","Background effect")}</label>
         <Choice id="material" label={t("背景效果","Background effect")} value={style.frosted ? "frosted":"clear"}
           options={[["frosted",t("毛玻璃","Frosted glass")],["clear",t("透明","Clear")]]}

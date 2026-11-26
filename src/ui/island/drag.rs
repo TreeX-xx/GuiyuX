@@ -78,15 +78,23 @@ fn hit(point: POINT) -> Hit {
         };
         if nav::bar_slot(id) {
             let slot = (id - FIRST) as usize;
-            let after = point.x >= r.right - 8;
-            if after
-                || point.x < r.left + 8
-                || matches!(row.action, Action::Open(Shortcut::Item(_)))
-            {
-                let edge = if after { r.right - 3 } else { r.left + 1 };
+            let vertical = nav::dock().edge.vertical();
+            let (at, start, end) = if vertical {
+                (point.y, r.top, r.bottom)
+            } else {
+                (point.x, r.left, r.right)
+            };
+            let after = at >= end - 8;
+            if after || at < start + 8 || matches!(row.action, Action::Open(Shortcut::Item(_))) {
+                let edge = if after { end - 3 } else { start + 1 };
+                let line = if vertical {
+                    area(r.left + 7, edge, r.right - 7, edge + 2)
+                } else {
+                    area(edge, r.top + 7, edge + 2, r.bottom - 7)
+                };
                 return Hit {
                     place: Placement::Pin((slot + usize::from(after)).min(BAR_CAPACITY)),
-                    line: Some(area(edge, r.top + 7, edge + 2, r.bottom - 7)),
+                    line: Some(line),
                     ..Hit::default()
                 };
             }
@@ -191,8 +199,7 @@ pub(super) fn hover_open() {
                 return;
             }
             AUTO_EXPANDED.set(true);
-            EXPANDED.set(true);
-            nav::show(View::Home);
+            expand_home();
         }
         Some(Travel::Back) => nav::back(),
         Some(Travel::More) => nav::show(View::More),
@@ -215,6 +222,7 @@ fn reset() {
         KillTimer(ISLAND.get(), HOVER_OPEN);
     }
     schedule_frame(ISLAND.get());
+    autohide::check_later();
 }
 pub(super) fn cancel() {
     reset();
@@ -529,7 +537,7 @@ mod tests {
         let _desktop = crate::test_desktop::TestDesktop::enter().unwrap();
         let _apartment = crate::shell::Apartment::open().unwrap();
         crate::ui::register("GuiyuX.Island", Some(super::super::procedure)).unwrap();
-        super::super::open().unwrap();
+        super::super::open(collection::current().unwrap()).unwrap();
         let hwnd = ISLAND.get();
         let folder = collection::update(|s| {
             s.auto_sort = false;
@@ -623,6 +631,53 @@ mod tests {
         VIEW.set(View::Home);
         PAGE.set(0);
         nav::rebuild();
+
+        collection::update(|s| {
+            s.dock = Dock {
+                edge: DockEdge::Right,
+                mode: DockMode::AutoHide,
+            };
+        })
+        .unwrap();
+        collection_changed().unwrap();
+        surface::present(hwnd).unwrap();
+        unsafe {
+            GetWindowRect(hwnd, &mut r);
+            let tab = POINTL {
+                x: (r.left + r.right) / 2,
+                y: (r.top + r.bottom) / 2,
+            };
+            let mut effect = DROPEFFECT_LINK;
+            target
+                .DragEnter(&data, MODIFIERKEYS_FLAGS(1), tab, &mut effect)
+                .unwrap();
+            hover_open();
+            autohide::check(hwnd);
+            assert!(EXPANDED.get() && !TRANSITION.get().is_some_and(|m| m.closing));
+            TRANSITION.set(None);
+            refresh();
+            surface::present(hwnd).unwrap();
+            GetWindowRect(GetDlgItem(hwnd, FIRST + 1), &mut r);
+            let below = POINTL {
+                x: (r.left + r.right) / 2,
+                y: r.bottom - 2,
+            };
+            target
+                .DragOver(MODIFIERKEYS_FLAGS(1), below, &mut effect)
+                .unwrap();
+            assert!(matches!(
+                placement(POINT {
+                    x: below.x,
+                    y: below.y
+                }),
+                Placement::Pin(2)
+            ));
+            let line = LINE.get().unwrap();
+            assert_eq!(line.bottom - line.top, 2);
+            assert!(line.right - line.left > 2);
+            target.DragLeave().unwrap();
+            assert!(!EXPANDED.get() || TRANSITION.get().is_some_and(|m| m.closing));
+        }
         unsafe {
             DestroyWindow(hwnd);
         }

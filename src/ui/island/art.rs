@@ -10,6 +10,7 @@ pub(in crate::ui) enum Symbol {
     More,
     Less,
     Up,
+    Down,
     Left,
     Right,
 }
@@ -205,6 +206,7 @@ fn mark(dc: HDC, icon: Icon<'_>, cx: f32, cy: f32, size: f32, color: u32, tilt: 
             }
             Symbol::Less => line(&[(5, 12), (19, 12)]),
             Symbol::Up => line(&[(6, 15), (12, 9), (18, 15)]),
+            Symbol::Down => line(&[(6, 9), (12, 15), (18, 9)]),
             Symbol::Left => line(&[(15, 6), (9, 12), (15, 18)]),
             Symbol::Right => line(&[(9, 6), (15, 12), (9, 18)]),
         }
@@ -228,7 +230,10 @@ fn button(
         let shade = mix(BG, if focused { FOCUS_BG } else { HOVER_BG }, active);
         rounded(dc, [1.5, 1., w - 3., h - 2.], ROW_RADIUS as f32, shade);
     }
-    let nav = matches!(icon.symbol, Symbol::Up | Symbol::Left | Symbol::Right);
+    let nav = matches!(
+        icon.symbol,
+        Symbol::Up | Symbol::Down | Symbol::Left | Symbol::Right
+    );
     let size = (if nav { 17.0_f32 } else { 24.0_f32 })
         .min(w - 4.)
         .min(h - 4.);

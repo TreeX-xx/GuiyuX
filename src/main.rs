@@ -46,7 +46,7 @@ fn run() -> std::io::Result<()> {
     let settings = config::load(&path)?;
     LANGUAGE.set(settings.language);
     ui::APPEARANCE_STYLE.set(settings.appearance);
-    let result = ui::run();
+    let result = ui::run(settings);
     let restore = collection::desktop::restore_on_exit();
     result.and(restore)
 }

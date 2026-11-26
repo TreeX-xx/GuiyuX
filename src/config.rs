@@ -8,6 +8,31 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DockEdge {
+    #[default]
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DockMode {
+    #[default]
+    AlwaysVisible,
+    AutoHide,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct Dock {
+    pub edge: DockEdge,
+    pub mode: DockMode,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct Appearance {
@@ -28,6 +53,7 @@ impl Default for Appearance {
 #[serde(default)]
 pub struct Settings {
     pub language: Language,
+    pub dock: Dock,
     // The island and menus share the appearance saved by menu-only versions.
     #[serde(rename = "menu")]
     pub appearance: Appearance,
@@ -47,6 +73,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             language: Language::System,
+            dock: Dock::default(),
             appearance: Appearance::default(),
             inbox: vec![],
             items: vec![],
@@ -108,6 +135,30 @@ pub fn save(path: &Path, settings: &Settings) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_settings_use_a_resident_top_dock_and_save_a_new_choice() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(&path, r#"{"language":"en","menu":{"transparency":57}}"#).unwrap();
+        let mut settings = load(&path).unwrap();
+        assert_eq!(
+            settings.dock,
+            Dock {
+                edge: DockEdge::Top,
+                mode: DockMode::AlwaysVisible
+            }
+        );
+        settings.dock = Dock {
+            edge: DockEdge::Right,
+            mode: DockMode::AutoHide,
+        };
+        save(&path, &settings).unwrap();
+        let saved = load(&path).unwrap();
+        assert_eq!(saved.dock, settings.dock);
+        assert_eq!(saved.appearance.transparency, 57);
+        assert_eq!(saved.language, Language::English);
+    }
+
     #[test]
     fn old_settings_get_glass_defaults_and_a_selected_style_survives_reload() {
         let dir = tempfile::tempdir().unwrap();

@@ -16,7 +16,7 @@ use std::{
 };
 use test_desktop::TestDesktop;
 use windows_sys::Win32::{
-    Foundation::{HANDLE, HWND, WAIT_OBJECT_0},
+    Foundation::{HANDLE, HWND, RECT, WAIT_OBJECT_0},
     System::{JobObjects::*, Threading::*},
     UI::WindowsAndMessaging::*,
 };
@@ -126,6 +126,15 @@ fn command(hwnd: HWND, id: usize) -> io::Result<()> {
     check(unsafe { PostMessageW(hwnd, WM_COMMAND, id, 0) })
 }
 
+fn bottom_capsule(hwnd: HWND, work: &RECT, depth: i32) -> bool {
+    let mut rect = RECT::default();
+    (unsafe { GetWindowRect(hwnd, &mut rect) != 0 })
+        && rect.bottom == work.bottom
+        && rect.top == work.bottom - depth
+        && rect.right - rect.left == 120
+        && (rect.left + rect.right - work.left - work.right).abs() <= 1
+}
+
 fn main() -> io::Result<()> {
     let folder = std::env::args_os()
         .nth(1)
@@ -146,7 +155,8 @@ fn main() -> io::Result<()> {
     fs::write(
         profile.join("settings.json"),
         json!({
-            "language":"en","bar_revision":1,"bar":[{"group":group}],"items":items
+            "language":"en","bar_revision":1,"bar":[{"group":group}],"items":items,
+            "dock":{"edge":"bottom","mode":"autoHide"}
         })
         .to_string(),
     )?;
@@ -160,6 +170,16 @@ fn main() -> io::Result<()> {
     let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
     let island = wait("island startup", || find(&wide("GuiyuX.Island"), Some(pid)))?;
     let button = |id| unsafe { GetDlgItem(island, id) };
+    let mut work = RECT::default();
+    check(unsafe {
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut work as *mut RECT).cast(), 0)
+    })?;
+    let capsule_at = |depth| {
+        bottom_capsule(island, &work, depth) && unsafe { IsWindowVisible(button(200)) == 0 }
+    };
+    wait("tucked bottom capsule", || capsule_at(5).then_some(()))?;
+    // A private desktop has no physical pointer. The native handler test drives
+    // enter/leave and checks the actual window bounds without moving one here.
     command(island, 101)?;
     wait("expanded shortcuts", || {
         (title(button(200)) == "Documents").then_some(())
@@ -208,6 +228,8 @@ fn main() -> io::Result<()> {
     wait("core shutdown", || {
         (unsafe { WaitForSingleObject(process.as_raw_handle(), 0) } == WAIT_OBJECT_0).then_some(())
     })?;
-    println!("Private desktop checks passed: grid paging, settings close and reopen.");
+    println!(
+        "Private desktop checks passed: tucked bottom capsule, click to open, grid paging, settings close and reopen."
+    );
     Ok(())
 }

@@ -15,7 +15,7 @@ const pages = {
   collection: { title: ["收纳", "Collection"], description: ["管理灵动岛中的收藏和分类。", "Manage the items and groups in your island."] },
   bar: { title: ["快捷栏", "Shortcut bar"], description: ["选择固定入口，调整它们在灵动岛上的顺序。", "Choose which shortcuts appear on the island and in what order."] },
   rules: { title: ["整理规则", "Sorting rules"], description: ["规则从上到下匹配。手动指定的分类优先。", "Rules match from top to bottom. Manually assigned groups take priority."] },
-  appearance: { title: ["外观", "Appearance"], description: ["调整灵动岛和右键菜单的背景效果。", "Adjust the background of the island and its context menus."] },
+  appearance: { title: ["外观", "Appearance"], description: ["设置灵动岛的停靠方式，以及灵动岛和菜单的背景效果。", "Choose how the island docks and adjust the background of the island and its menus."] },
   language: { title: ["界面语言", "Language"], description: ["选择灵动岛、菜单和设置使用的语言。", "Choose the language for the island, menus, and settings."] },
 };
 
@@ -173,7 +173,7 @@ function Settings() {
           {state && page === "collection" && <Collection state={state} run={run}/>}
           {state && page === "bar" && <Shortcuts state={state} run={run} failed={failed}/>}
           {state && page === "rules" && <Rules state={state} run={run}/>}
-          {state && page === "appearance" && <Appearance state={state} failed={failed}
+          {state && page === "appearance" && <Appearance state={state} run={run} failed={failed}
             saved={appearance => setState(s => ({ ...s, appearance }))}/>}
           {state && page === "language" && <Language state={state} run={run}/>}
           <div role="status" className="notice">{status}</div>

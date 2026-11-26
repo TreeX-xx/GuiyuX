@@ -103,9 +103,9 @@ fn register(class: &str, proc: WNDPROC) -> io::Result<()> {
     Ok(())
 }
 
-pub fn run() -> io::Result<()> {
+pub fn run(settings: crate::config::Settings) -> io::Result<()> {
     register("GuiyuX.Island", Some(island::procedure))?;
-    island::open()?;
+    island::open(settings)?;
     unsafe {
         let mut msg = MSG::default();
         loop {

@@ -72,13 +72,7 @@ fn show(tip: HWND) -> bool {
         if text.is_empty() {
             return false;
         }
-        let mut work = area(
-            0,
-            0,
-            GetSystemMetrics(SM_CXSCREEN),
-            GetSystemMetrics(SM_CYSCREEN),
-        );
-        SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut work as *mut RECT).cast(), 0);
+        let work = layout::work_area();
         let flags = DT_NOPREFIX | DT_WORDBREAK | DT_EDITCONTROL;
         let max_width = (work.right - work.left - 16).clamp(1, 520);
         let dc = GetDC(anchor);
@@ -103,9 +97,7 @@ fn show(tip: HWND) -> bool {
         GetWindowRect(anchor, &mut button);
         let w = width + 16;
         let h = (size.bottom + 8).min((work.bottom - work.top).max(1));
-        let x = ((button.left + button.right - w) / 2)
-            .clamp(work.left, (work.right - w).max(work.left));
-        let y = (button.bottom + 6).clamp(work.top, (work.bottom - h).max(work.top));
+        let origin = nav::dock().edge.tip(button, w, h, work);
         // TTN_SHOW supplies the visible native tooltip and its accessibility.
         // Commit its artwork and anchor position together before it is shown.
         let Ok(mut bitmap) = Bitmap::new(w, h) else {
@@ -123,7 +115,7 @@ fn show(tip: HWND) -> bool {
         DeleteObject(face);
         round_edges(bitmap.pixels(), w, h, ROW_RADIUS);
         bitmap
-            .present(tip, Some(POINT { x, y }), SIZE { cx: w, cy: h })
+            .present(tip, Some(origin), SIZE { cx: w, cy: h })
             .is_ok()
     }
 }

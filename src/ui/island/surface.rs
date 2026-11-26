@@ -22,6 +22,53 @@ pub(super) fn present(hwnd: HWND) -> io::Result<()> {
         return Ok(());
     }
     let mut face = Bitmap::new(w, h)?;
+    let style = APPEARANCE_STYLE.get();
+    let high_contrast = high_contrast();
+    if capsule::active() {
+        let focused = KEYBOARD.get()
+            && unsafe {
+                windows_sys::Win32::UI::Input::KeyboardAndMouse::GetFocus()
+                    == GetDlgItem(hwnd, HEADER)
+            };
+        capsule::paint(
+            &mut face,
+            w,
+            capsule::Outline::current(w, h),
+            nav::dock().edge.vertical(),
+            style.transparency,
+            high_contrast,
+            focused,
+        );
+    } else {
+        let mut style = style;
+        if high_contrast {
+            style.transparency = 0;
+        }
+        paint_contents(hwnd, &mut face, w, h, style)?;
+    }
+    face.present(
+        hwnd,
+        Some(POINT {
+            x: rect.left,
+            y: rect.top,
+        }),
+        SIZE { cx: w, cy: h },
+    )?;
+    backdrop::sync(
+        hwnd,
+        rect,
+        style.frosted && style.transparency > 0 && !high_contrast,
+    );
+    Ok(())
+}
+
+fn paint_contents(
+    hwnd: HWND,
+    face: &mut Bitmap,
+    w: i32,
+    h: i32,
+    style: crate::config::Appearance,
+) -> io::Result<()> {
     let mut ink = Bitmap::new(w, h)?;
     ink.pixels().fill(0);
     paint_background(face.dc, ink.dc, area(0, 0, w, h));
@@ -63,25 +110,12 @@ pub(super) fn present(hwnd: HWND) -> io::Result<()> {
     }
     drag::paint_line(face.dc);
 
-    let mut style = APPEARANCE_STYLE.get();
-    if high_contrast() {
-        style.transparency = 0;
-    }
-    finish(&mut face, &mut ink, w, h, style, CONTENT_ALPHA.get());
-    face.present(
-        hwnd,
-        Some(POINT {
-            x: rect.left,
-            y: rect.top,
-        }),
-        SIZE { cx: w, cy: h },
-    )?;
-    backdrop::sync(hwnd, rect, style.frosted && style.transparency > 0);
+    finish(face, &mut ink, w, h, style, CONTENT_ALPHA.get());
     Ok(())
 }
 
 // Source-over for premultiplied BGRA, including the expand/collapse opacity.
-fn over(dst: u32, src: u32, opacity: u32) -> u32 {
+pub(super) fn over(dst: u32, src: u32, opacity: u32) -> u32 {
     if src == 0 || opacity == 0 {
         return dst;
     }

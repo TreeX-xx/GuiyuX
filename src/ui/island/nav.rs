@@ -86,10 +86,16 @@ pub(super) fn button_row(id: i32) -> Option<Row> {
 pub(super) fn auto_sort() -> bool {
     DATA.with_borrow(|s| s.auto_sort)
 }
+pub(super) fn dock() -> Dock {
+    DATA.with_borrow(|s| s.dock)
+}
 pub(super) fn reload() -> io::Result<()> {
-    DATA.replace(collection::current()?);
-    rebuild();
+    set_data(collection::current()?);
     Ok(())
+}
+pub(super) fn set_data(settings: Settings) {
+    DATA.replace(settings);
+    rebuild();
 }
 pub(super) fn rebuild() {
     let lang = crate::language();

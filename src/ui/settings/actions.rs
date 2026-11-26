@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     collection::{Group, Placement, Rule, RuleKind, Shortcut, desktop},
-    config::{Appearance, Settings},
+    config::{Appearance, DockEdge, DockMode, Settings},
     language::Language,
 };
 use std::path::PathBuf;
@@ -11,6 +11,12 @@ use std::path::PathBuf;
 enum Action {
     Initial,
     Snapshot,
+    DockEdge {
+        edge: DockEdge,
+    },
+    DockMode {
+        mode: DockMode,
+    },
     Appearance {
         style: Appearance,
         commit: bool,
@@ -94,7 +100,7 @@ fn snapshot(s: &Settings) -> Value {
     json!({
         "language":lang, "locale": if lang.is_chinese() {"zh-CN"} else {"en"},
         "systemLanguage": Language::System.native_name(), "appearance":s.appearance,
-        "autoSort":s.auto_sort, "groups":groups, "bar":bar, "rules":s.rules
+        "dock":s.dock, "autoSort":s.auto_sort, "groups":groups, "bar":bar, "rules":s.rules
     })
 }
 
@@ -230,6 +236,8 @@ pub(super) fn execute(value: Value) -> io::Result<Value> {
             return Ok(json!({"changes":changes}));
         }
         Action::Language { language } => crate::change_language(language)?,
+        Action::DockEdge { edge } => collection::update(|s| s.dock.edge = edge)?,
+        Action::DockMode { mode } => collection::update(|s| s.dock.mode = mode)?,
         Action::AutoSort { enabled } => collection::update(|s| s.auto_sort = enabled)?,
         Action::Organize => {
             result["message"] = json!(summary(desktop::organize(|_| Ok(()))?.1));
