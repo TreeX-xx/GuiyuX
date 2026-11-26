@@ -5,7 +5,7 @@
   "kind": "module",
   "lifecycle": "accepted",
   "created": "2026-11-25",
-  "updated": "2026-11-26T04:00:25Z",
+  "updated": "2026-11-26T05:25:51Z",
   "role": "project",
   "moduleState": "partial"
 }
@@ -14,6 +14,8 @@
 # GuiyuX 桌面收纳
 
 面向 Windows 的低内存常驻桌面工具，参考 [Booki](https://github.com/punkable/booki) 的拖入固定、分组与快速打开体验。界面支持简体中文和英文。视觉方向是通过胶囊和卡片的形态变化表现展开、归类和收起。
+
+GuiyuX 的「合页」标志由两片相对的纸页组成 X，使用石墨灰与暖纸白。Windows 图标保留暖纸白的 X，外缘和页间留白均透明。程序内嵌多尺寸图标，供资源管理器、窗口标题栏和设置侧栏共用。
 
 ## 收纳方式
 
