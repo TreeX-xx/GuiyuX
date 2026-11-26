@@ -4,6 +4,8 @@ mod collection;
 mod config;
 mod language;
 mod shell;
+#[cfg(test)]
+mod test_desktop;
 mod ui;
 
 use language::Language;

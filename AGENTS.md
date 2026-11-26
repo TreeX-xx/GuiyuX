@@ -12,3 +12,7 @@ Main Agent owns direct execution, document maintenance and scheduling. User scop
 
 If source text cannot be read/edited normally, inspect with rg and make precise encoding-preserving edits; verify the diff. Never replace unreadable content blindly.
 <!-- wfx-managed-end -->
+
+## Windows 界面验证
+
+用 `./build.ps1 -VerifyOnly` 验证实际窗口。新增界面用例在独立的 Win32 桌面和临时配置中运行，用发给测试窗口的消息或 WebView 的页面接口模拟操作。需要核对画面时从测试窗口离屏取图，用户的光标与前台窗口由用户控制。

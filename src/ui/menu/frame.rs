@@ -436,6 +436,7 @@ mod tests {
 
     #[test]
     fn menu_show_restores_the_original_shadow_style() {
+        let _desktop = crate::test_desktop::TestDesktop::enter().unwrap();
         let class = "GuiyuX.Test.MenuShadow";
         register(class, Some(DefWindowProcW)).unwrap();
         let hwnd = window(class, "", WS_POPUP, 0, null_mut(), 0).unwrap();

@@ -496,6 +496,7 @@ pub(super) fn unregister(hwnd: HWND) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::windows::process::CommandExt;
     use windows::Win32::UI::Shell::{BHID_DataObject, IShellItem, SHCreateItemFromParsingName};
     use windows::core::PCWSTR;
 
@@ -507,6 +508,7 @@ mod tests {
         if std::env::var_os(CHILD).is_none() {
             let root = tempfile::tempdir().unwrap();
             let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
                 .args([
                     "--exact",
                     "ui::island::drag::tests::shell_drop_uses_the_visible_folder_and_pin_targets",
@@ -524,6 +526,7 @@ mod tests {
             );
             return;
         }
+        let _desktop = crate::test_desktop::TestDesktop::enter().unwrap();
         let _apartment = crate::shell::Apartment::open().unwrap();
         crate::ui::register("GuiyuX.Island", Some(super::super::procedure)).unwrap();
         super::super::open().unwrap();

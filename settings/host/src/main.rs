@@ -14,6 +14,9 @@ use tokio::sync::oneshot;
 
 #[cfg(windows)]
 mod window_close;
+#[cfg(all(windows, test))]
+#[path = "../../../src/test_desktop.rs"]
+mod test_desktop;
 
 #[derive(Default)]
 struct Bridge {

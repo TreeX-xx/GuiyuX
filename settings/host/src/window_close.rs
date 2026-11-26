@@ -79,6 +79,7 @@ mod tests {
 
     #[test]
     fn closing_the_event_target_before_or_after_present_reaches_the_settings_window() {
+        let _desktop = crate::test_desktop::TestDesktop::enter().unwrap();
         // Build the installed Tao runtime so a change to its event target is detected.
         let _app = tauri::Builder::default()
             .any_thread()

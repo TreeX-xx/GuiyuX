@@ -1,6 +1,7 @@
 param(
     [ValidateSet('Debug','Release')][string]$Profile = 'Release',
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot ('target/' + $Profile.ToLowerInvariant()))
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot ('target/' + $Profile.ToLowerInvariant())),
+    [switch]$VerifyOnly
 )
 $ErrorActionPreference = 'Stop'
 $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
@@ -23,6 +24,10 @@ try {
     foreach ($item in 'package.json','package-lock.json','index.html','src') {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot "settings/$item") -Destination $web -Recurse
     }
+    if ($VerifyOnly) {
+        Copy-Item -LiteralPath "$PSScriptRoot/examples" -Destination $stage -Recurse
+        Copy-Item -LiteralPath "$PSScriptRoot/settings/tests" -Destination $web -Recurse
+    }
     foreach ($item in 'Cargo.toml','Cargo.lock','build.rs','tauri.conf.json','src') {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot "settings/host/$item") -Destination $hostDir -Recurse
     }
@@ -30,6 +35,10 @@ try {
     try {
         & npm.cmd ci --no-audit --no-fund
         if ($LASTEXITCODE) { throw 'npm ci failed' }
+        if ($VerifyOnly) {
+            & npm.cmd test
+            if ($LASTEXITCODE) { throw 'Testing the settings interface failed' }
+        }
         & npm.cmd run build
         if ($LASTEXITCODE) { throw 'Building the settings interface failed' }
     } finally { Pop-Location }
@@ -43,9 +52,22 @@ try {
     & cargo @flags --manifest-path "$hostDir/Cargo.toml" --target-dir $settingsCache
     if ($LASTEXITCODE) { throw 'Building the Tauri settings host failed' }
 
-    New-Item -ItemType Directory -Force -Path $output | Out-Null
     $flavor = $Profile.ToLowerInvariant()
     $executables = @((Join-Path $cache "$flavor/guiyux.exe"), (Join-Path $settingsCache "$flavor/guiyux-settings.exe"))
+    if ($VerifyOnly) {
+        $pair = New-Item -ItemType Directory -Path (Join-Path $stage 'verify-pair')
+        Copy-Item -LiteralPath $executables -Destination $pair.FullName
+        $checkFlags = @('--locked')
+        if ($Profile -eq 'Release') { $checkFlags += '--release' }
+        & cargo test @checkFlags --manifest-path "$stage/Cargo.toml" --target-dir $cache
+        if ($LASTEXITCODE) { throw 'Testing the resident core failed' }
+        & cargo test @checkFlags --manifest-path "$hostDir/Cargo.toml" --target-dir $settingsCache
+        if ($LASTEXITCODE) { throw 'Testing the settings host failed' }
+        & cargo run @checkFlags --manifest-path "$stage/Cargo.toml" --target-dir $cache --example verify_ui -- $pair.FullName
+        if ($LASTEXITCODE) { throw 'Testing the island and settings on a private desktop failed' }
+        return
+    }
+    New-Item -ItemType Directory -Force -Path $output | Out-Null
     # Both executables have to come from the same build. Restore the previous pair on a copy failure.
     $installed = @()
     try {

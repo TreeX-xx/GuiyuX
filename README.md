@@ -13,6 +13,14 @@ Windows 桌面收纳工具。Rust 常驻进程用 Win32 绘制灵动岛，设置
 
 运行和分发时，将同次构建的 `guiyux.exe` 与 `guiyux-settings.exe` 放在同一目录，启动 `guiyux.exe`。打开设置时才会启动第二个程序，关闭窗口后它随 WebView2 一起退出。调试构建使用 `.\build.ps1 -Profile Debug`。若需要另存一份，使用 `-OutputDirectory <目录>`。脚本在本机临时目录编译，核心的 Cargo 缓存位于 `%LOCALAPPDATA%\GuiyuX-build\cargo-target`，设置宿主的缓存位于 `target\settings-cargo`。
 
+使用以下命令运行 Windows 界面回归测试。
+
+```powershell
+.\build.ps1 -VerifyOnly
+```
+
+脚本构建临时程序并运行单元测试，再在独立的 Win32 桌面启动灵动岛和设置。测试用临时收藏检查展开、翻页和设置窗口的关闭与重开，通过窗口消息驱动控件。验证结束后清理测试进程，安装目录和当前用户的工作桌面可继续使用。
+
 ## 模块维护
 
 | 入口 | 职责 |
