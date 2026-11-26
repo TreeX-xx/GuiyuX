@@ -4,6 +4,8 @@ use windows_sys::Win32::UI::{
     Shell::{DefSubclassProc, RemoveWindowSubclass},
 };
 
+pub(super) const RADIUS: i32 = 6;
+
 thread_local! {
     // Native list tracking can change the hot row before the user commits it.
     static OPEN: Cell<Option<(HWND, isize)>> = const { Cell::new(None) };
@@ -114,6 +116,38 @@ pub(super) fn row(d: &DRAWITEMSTRUCT) {
     );
 }
 
+fn bounds(hwnd: HWND) -> RECT {
+    let mut r = RECT::default();
+    unsafe { GetWindowRect(hwnd, &mut r) };
+    area(0, 0, r.right - r.left, r.bottom - r.top)
+}
+
+fn outline(r: RECT) -> HRGN {
+    unsafe { CreateRoundRectRgn(0, 0, r.right + 1, r.bottom + 1, 2 * RADIUS, 2 * RADIUS) }
+}
+
+fn paint_frame(dc: HDC, r: RECT) {
+    unsafe {
+        let shape = outline(r);
+        if shape.is_null() {
+            return;
+        }
+        let state = SaveDC(dc);
+        if state != 0 {
+            // Both corner arcs fit in the side gutters. Leave the native
+            // viewport and scrollbar intact, including on a scroll repaint.
+            ExcludeClipRect(dc, RADIUS, 1, r.right - RADIUS, r.bottom - 1);
+            let brush = GetStockObject(DC_BRUSH);
+            SetDCBrushColor(dc, ROW_BG);
+            FillRgn(dc, shape, brush);
+            SetDCBrushColor(dc, EDGE);
+            FrameRgn(dc, shape, brush, 1, 1);
+            RestoreDC(dc, state);
+        }
+        DeleteObject(shape);
+    }
+}
+
 unsafe extern "system" fn list_proc(
     hwnd: HWND,
     msg: u32,
@@ -128,41 +162,72 @@ unsafe extern "system" fn list_proc(
         }
         let result = DefSubclassProc(hwnd, msg, wp, lp);
         match msg {
+            WM_NCCALCSIZE if !high_contrast() => {
+                // Both forms of WM_NCCALCSIZE start with the new client RECT.
+                let client = &mut *(lp as *mut RECT);
+                if client.right - client.left > 2 * (RADIUS - 1) {
+                    client.left += RADIUS - 1;
+                    client.right -= RADIUS - 1;
+                }
+            }
             WM_SIZE | WM_THEMECHANGED => {
                 if high_contrast() {
                     SetWindowRgn(hwnd, null_mut(), 1);
                 } else {
-                    let mut r = RECT::default();
-                    GetWindowRect(hwnd, &mut r);
-                    let region = CreateRoundRectRgn(
-                        0,
-                        0,
-                        r.right - r.left + 1,
-                        r.bottom - r.top + 1,
-                        12,
-                        12,
-                    );
+                    let region = outline(bounds(hwnd));
                     if !region.is_null() && SetWindowRgn(hwnd, region, 1) == 0 {
                         DeleteObject(region);
                     }
                 }
             }
-            WM_NCPAINT if !high_contrast() => {
+            WM_NCPAINT | WM_PAINT if !high_contrast() => {
                 let dc = GetWindowDC(hwnd);
                 if !dc.is_null() {
-                    let mut r = RECT::default();
-                    GetWindowRect(hwnd, &mut r);
-                    let state = SaveDC(dc);
-                    SelectObject(dc, GetStockObject(NULL_BRUSH));
-                    SelectObject(dc, GetStockObject(DC_PEN));
-                    SetDCPenColor(dc, EDGE);
-                    RoundRect(dc, 0, 0, r.right - r.left, r.bottom - r.top, 12, 12);
-                    RestoreDC(dc, state);
+                    paint_frame(dc, bounds(hwnd));
                     ReleaseDC(hwnd, dc);
                 }
+            }
+            WM_PRINT if lp as i32 & PRF_NONCLIENT != 0 && !high_contrast() => {
+                paint_frame(wp as HDC, bounds(hwnd));
             }
             _ => {}
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn popup_outline_connects_all_four_corners_without_covering_the_list() {
+        let (w, h) = (155, 98);
+        let bitmap = Bitmap::new(w, h).unwrap();
+        let r = area(0, 0, w, h);
+        fill(bitmap.dc, &r, 0xffffff);
+        paint_frame(bitmap.dc, r);
+        unsafe {
+            let shape = outline(r);
+            for y in 0..=RADIUS {
+                let first = (0..=RADIUS)
+                    .find(|&x| PtInRegion(shape, x, y) != 0)
+                    .unwrap();
+                for row in [y, h - 1 - y] {
+                    assert_eq!(GetPixel(bitmap.dc, first, row), EDGE);
+                    assert_eq!(GetPixel(bitmap.dc, w - 1 - first, row), EDGE);
+                    if first > 0 {
+                        assert_eq!(GetPixel(bitmap.dc, first - 1, row), 0xffffff);
+                        assert_eq!(GetPixel(bitmap.dc, w - first, row), 0xffffff);
+                    }
+                }
+            }
+            DeleteObject(shape);
+            for (x, y) in [(0, h / 2), (w - 1, h / 2), (w / 2, 0), (w / 2, h - 1)] {
+                assert_eq!(GetPixel(bitmap.dc, x, y), EDGE);
+            }
+            assert_eq!(GetPixel(bitmap.dc, w / 2, 1), 0xffffff);
+            assert_eq!(GetPixel(bitmap.dc, w - RADIUS - 1, h / 2), 0xffffff);
+        }
     }
 }

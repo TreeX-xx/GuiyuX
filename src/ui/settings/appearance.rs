@@ -514,13 +514,18 @@ pub(super) unsafe extern "system" fn combo_proc(
                 let open = SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0) != 0;
                 let focused = GetFocus() == hwnd || open;
                 fill(dc, &r, BG);
-                rounded_fill(dc, r, ROW_RADIUS, if focused { SILVER } else { EDGE });
+                rounded_fill(
+                    dc,
+                    area(1, 1, w - 1, h - 1),
+                    dropdown::RADIUS,
+                    if focused { 0x83807d } else { EDGE },
+                );
                 let face = if open || dialog::HOT.get() == hwnd {
                     HOVER_BG
                 } else {
                     ROW_BG
                 };
-                rounded_fill(dc, area(1, 1, w - 1, h - 1), ROW_RADIUS - 1, face);
+                rounded_fill(dc, area(2, 2, w - 2, h - 2), dropdown::RADIUS - 1, face);
                 text(dc, area(12, 0, w - 33, h), &window_text(hwnd), 13, INK);
                 glyph(
                     dc,

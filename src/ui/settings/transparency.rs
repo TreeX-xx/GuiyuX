@@ -32,10 +32,28 @@ pub(super) fn apply(style: Appearance, persist: bool) -> io::Result<()> {
     Ok(())
 }
 
-pub(super) fn display(hwnd: HWND, percent: u8) {
-    if send(hwnd, SLIDER, TBM_GETPOS, 0, 0) != percent as isize {
-        send(hwnd, SLIDER, TBM_SETPOS, 1, percent as isize);
+fn position_slider(hwnd: HWND, percent: u8) {
+    let slider = child(hwnd, SLIDER);
+    if slider.is_null() {
+        return;
     }
+    unsafe {
+        if SendMessageW(slider, TBM_GETPOS, 0, 0) != percent as isize {
+            SendMessageW(slider, TBM_SETPOS, 1, percent as isize);
+        }
+        // ComCtl32 invalidates its native thumb. Our focus ring and filled track
+        // extend beyond that rectangle, including when the mouse is captured.
+        RedrawWindow(
+            slider,
+            null_mut(),
+            null_mut(),
+            RDW_INVALIDATE | RDW_UPDATENOW,
+        );
+    }
+}
+
+pub(super) fn display(hwnd: HWND, percent: u8) {
+    position_slider(hwnd, percent);
     let value = percent.to_string();
     if field(hwnd, TRANSPARENCY) != value {
         caption(child(hwnd, TRANSPARENCY), &value);
@@ -60,7 +78,7 @@ pub(super) fn edit(hwnd: HWND, event: u32) -> io::Result<()> {
         {
             style.transparency = value as u8;
             apply(style, true)?;
-            send(hwnd, SLIDER, TBM_SETPOS, 1, value as isize);
+            position_slider(hwnd, value as u8);
         }
     } else {
         if event == EN_KILLFOCUS {
@@ -146,4 +164,70 @@ pub(super) fn draw_slider(d: &NMCUSTOMDRAW) -> LRESULT {
     }
     rounded_fill(d.hdc, area(x - 7, y - 7, x + 7, y + 7), 7, INK);
     CDRF_SKIPDEFAULT as isize
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    unsafe extern "system" fn observe_paint(
+        hwnd: HWND,
+        msg: u32,
+        wp: WPARAM,
+        lp: LPARAM,
+        _: usize,
+        data: usize,
+    ) -> LRESULT {
+        unsafe {
+            if msg == WM_PAINT {
+                GetUpdateRect(hwnd, data as *mut RECT, 0);
+            }
+            DefSubclassProc(hwnd, msg, wp, lp)
+        }
+    }
+
+    #[test]
+    fn thumb_tracking_repaints_the_whole_slider_at_its_current_position() {
+        unsafe {
+            windows_sys::Win32::UI::Controls::InitCommonControls();
+            let host = window("STATIC", "", WS_POPUP, WS_EX_TOOLWINDOW, null_mut(), 0).unwrap();
+            let slider = window(
+                "msctls_trackbar32",
+                "",
+                WS_CHILD | WS_VISIBLE | TBS_NOTICKS,
+                0,
+                host,
+                SLIDER as usize,
+            )
+            .unwrap();
+            SetWindowPos(
+                host,
+                null_mut(),
+                -20000,
+                -20000,
+                382,
+                34,
+                SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
+            );
+            MoveWindow(slider, 0, 0, 382, 34, 1);
+            SendMessageW(slider, TBM_SETPOS, 1, 45);
+            UpdateWindow(slider);
+            let mut painted = RECT::default();
+            SetWindowSubclass(
+                slider,
+                Some(observe_paint),
+                1,
+                (&mut painted as *mut RECT) as usize,
+            );
+            // A native drag notification arrives after the thumb has already moved.
+            InvalidateRect(slider, &area(168, 2, 179, 26), 0);
+            position_slider(host, 45);
+            RemoveWindowSubclass(slider, Some(observe_paint), 1);
+            DestroyWindow(host);
+            assert_eq!(
+                (painted.left, painted.top, painted.right, painted.bottom),
+                (0, 0, 382, 34)
+            );
+        }
+    }
 }
