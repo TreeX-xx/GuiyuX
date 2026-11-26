@@ -1,7 +1,7 @@
 // The resident core owns settings and launches the WebView only on demand.
 // See .agents/notes/module.md「设置窗口与常驻核心」.
 use super::*;
-use crate::collection::{self, OTHER};
+use crate::collection;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -124,22 +124,28 @@ pub(super) fn notify() {
 }
 
 pub(super) fn organize() -> io::Result<()> {
-    let (changed, other) = collection::update(|s| (s.organize(), s.count(OTHER)))?;
+    let (_, result) = collection::desktop::organize(|_| Ok(()))?;
     island::collection_changed()?;
     open()?;
-    let message = actions::summary(changed, other);
+    desktop_notice("organized", actions::summary(result));
+    Ok(())
+}
+
+pub(super) fn restore_desktop() -> io::Result<()> {
+    desktop_notice("desktopRestored", actions::restore_desktop()?.to_owned());
+    Ok(())
+}
+
+fn desktop_notice(event: &str, message: String) {
     SESSION.with_borrow_mut(|slot| {
         if let Some(s) = slot {
             if s.ready {
-                let _ = s
-                    .output
-                    .send(json!({"event":"organized", "message":message}));
+                let _ = s.output.send(json!({"event":event, "message":message}));
             } else {
                 s.notice = Some(message);
             }
         }
     });
-    Ok(())
 }
 
 pub(super) fn dispatch(generation: usize) {

@@ -34,6 +34,7 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     inbox: Vec<PathBuf>,
     pub auto_sort: bool,
+    pub restore_desktop_on_exit: bool,
     pub items: Vec<Item>,
     pub rules: Vec<Rule>,
     pub folders: Vec<Folder>,
@@ -50,6 +51,7 @@ impl Default for Settings {
             inbox: vec![],
             items: vec![],
             auto_sort: true,
+            restore_desktop_on_exit: false,
             rules: vec![],
             folders: vec![],
             bar: collection::default_bar(),

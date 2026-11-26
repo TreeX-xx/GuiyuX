@@ -467,8 +467,14 @@ mod tests {
 
     #[test]
     fn menu_outline_stays_transparent_and_symmetric_as_selection_moves() {
-        for (w, h, theme) in [(212, 110, &palette::LIGHT), (215, 114, &palette::DARK)] {
+        for (w, padding, theme) in [(212, 6, &palette::LIGHT), (215, 10, &palette::DARK)] {
             let popup = Popup::new(main_rows(), Some(theme)).unwrap();
+            let h = padding
+                + popup
+                    .items
+                    .iter()
+                    .map(|item| item.row.height())
+                    .sum::<i32>();
             let mut idle = artwork(w, h, 0, &popup.items, theme).unwrap();
             let pixels = idle.pixels();
             let alpha = |x: i32, y: i32| pixels[(y * w + x) as usize] >> 24;

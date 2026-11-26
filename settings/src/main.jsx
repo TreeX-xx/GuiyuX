@@ -50,12 +50,14 @@ function Collection({ state, run }) {
         <input type="checkbox" role="switch" checked={state.autoSort}
           onChange={e => run({ type: "autoSort", enabled: e.target.checked })}/><span className="switch" aria-hidden="true"/>
       </label>
-      <div className="setting-row"><span>{t("已有收藏", "Existing items")}</span>
-        <div className="actions wrap"><button onClick={() => run({ type: "showGroup", group: { builtin: "other" } })}>{t("查看其他", "View Other")}</button>
-          <button onClick={() => run({ type: "organize" })}>{t("立即整理", "Organize now")}</button></div>
+      <div className="setting-row"><span>{t("桌面图标", "Desktop icons")}</span>
+        <div className="actions wrap"><button className="primary" onClick={() => run({ type: "organize" })}>{t("立即整理", "Organize now")}</button>
+          <button onClick={() => run({ type: "restoreDesktop" })}>{t("恢复桌面图标", "Restore desktop icons")}</button></div>
       </div>
+      <p className="desktop-hint">{t("整理会收纳桌面的文件、文件夹和快捷方式，并收起包括回收站在内的所有桌面图标。文件保留在原位置。", "Organizing collects desktop files, folders and shortcuts, then hides all desktop icons, including the Recycle Bin. Files stay at their original paths.")}</p>
     </section>
-    <h2>{t("分类与文件夹", "Categories and folders")}</h2>
+    <div className="section-title"><h2>{t("分类与文件夹", "Categories and folders")}</h2>
+      <button onClick={() => run({ type: "showGroup", group: { builtin: "other" } })}>{t("查看其他", "View Other")}</button></div>
     <div className="groups">{state.groups.map(({ key, name, count }) =>
       <button key={JSON.stringify(key)} className="group" onClick={() => run({ type: "showGroup", group: key })}>
         <Icon name={key.builtin || "folders"}/><span>{name}</span><small>{count}</small>
@@ -96,7 +98,7 @@ function Settings() {
           const { state } = await request({ type: "snapshot" });
           if (!active) return;
           setState(state);
-          if (payload.event === "organized") {
+          if (payload.event === "organized" || payload.event === "desktopRestored") {
             setPage("collection");
             setStatus(payload.message);
           }

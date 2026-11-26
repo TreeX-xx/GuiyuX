@@ -11,6 +11,7 @@ use palette::Palette;
 const OPEN_SETTINGS: u32 = 4001;
 const QUIT: u32 = 4002;
 const ORGANIZE: u32 = 4003;
+const RESTORE_DESKTOP: u32 = 4004;
 
 const MENU_TEXT_SIZE: i32 = 14;
 const INSET: i32 = PANEL_RADIUS - ROW_RADIUS;
@@ -73,6 +74,11 @@ fn main_rows() -> Vec<Row> {
             ORGANIZE,
             crate::language().pick("立即整理", "Organize now"),
             "\u{e8cb}",
+        ),
+        Row::new(
+            RESTORE_DESKTOP,
+            crate::language().pick("恢复桌面图标", "Restore desktop icons"),
+            "\u{e72c}",
         ),
         Row::separator(),
         Row {
@@ -242,6 +248,7 @@ pub(super) fn command(owner: HWND, id: u32) -> Option<io::Result<()>> {
     Some(match id {
         OPEN_SETTINGS => settings::open(),
         ORGANIZE => settings::organize(),
+        RESTORE_DESKTOP => settings::restore_desktop(),
         QUIT => {
             unsafe { PostMessageW(owner, WM_CLOSE, 0, 0) };
             Ok(())

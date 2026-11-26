@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    collection::{Group, Placement, Rule, RuleKind, Shortcut},
+    collection::{Group, Placement, Rule, RuleKind, Shortcut, desktop},
     config::{Appearance, Settings},
     language::Language,
 };
@@ -19,6 +19,7 @@ enum Action {
         enabled: bool,
     },
     Organize,
+    RestoreDesktop,
     ShowGroup {
         group: Group,
     },
@@ -97,11 +98,25 @@ fn snapshot(s: &Settings) -> Value {
     })
 }
 
-pub(super) fn summary(changed: usize, other: usize) -> String {
+pub(super) fn summary(report: desktop::Organization) -> String {
+    let desktop::Organization {
+        added,
+        moved,
+        other,
+        view_error,
+    } = report;
     if crate::language().is_chinese() {
-        format!("已调整 {changed} 项 · 其他 {other} 项")
+        let status = view_error.map_or_else(
+            || "桌面图标已收起".to_owned(),
+            |e| format!("桌面图标收起失败，请重试。{e}"),
+        );
+        format!("新收纳 {added} 项 · 已调整 {moved} 项 · 其他 {other} 项。{status}")
     } else {
-        format!("{changed} moved · {other} in Other")
+        let status = view_error.map_or_else(
+            || "Desktop icons are hidden.".to_owned(),
+            |e| format!("Could not hide desktop icons. Try again. {e}"),
+        );
+        format!("{added} added · {moved} moved · {other} in Other. {status}")
     }
 }
 
@@ -120,6 +135,14 @@ fn apply_style(style: Appearance, commit: bool) -> io::Result<()> {
         island::appearance_changed();
     }
     Ok(())
+}
+
+pub(super) fn restore_desktop() -> io::Result<&'static str> {
+    desktop::restore()?;
+    Ok(crate::language().pick(
+        "桌面图标已恢复，分类收藏已保留。",
+        "Desktop icons restored. Your grouped items are still in the island.",
+    ))
 }
 
 fn folder_name(name: &str) -> io::Result<&str> {
@@ -194,17 +217,25 @@ pub(super) fn execute(value: Value) -> io::Result<Value> {
             let s = collection::current()?;
             let mut rules = s.rules.clone();
             put_rule(&mut rules, index, rule)?;
-            let changes: Vec<_> = s.changes(&rules).into_iter().map(|(i, to)| {
-                let item = &s.items[i];
-                json!({"path":item.path,"from":s.group_name(item.group,s.language),"to":s.group_name(to,s.language)})
-            }).collect();
+            let changes: Vec<_> = desktop::preview(&s, &desktop::files()?, &rules)
+                .into_iter()
+                .map(|(path, from, to)| {
+                    let from = from.map_or_else(
+                        || s.language.pick("桌面", "Desktop").to_owned(),
+                        |g| s.group_name(g, s.language),
+                    );
+                    json!({"path":path,"from":from,"to":s.group_name(to,s.language)})
+                })
+                .collect();
             return Ok(json!({"changes":changes}));
         }
         Action::Language { language } => crate::change_language(language)?,
         Action::AutoSort { enabled } => collection::update(|s| s.auto_sort = enabled)?,
         Action::Organize => {
-            let (n, other) = collection::update(|s| (s.organize(), s.count(OTHER)))?;
-            result["message"] = json!(summary(n, other));
+            result["message"] = json!(summary(desktop::organize(|_| Ok(()))?.1));
+        }
+        Action::RestoreDesktop => {
+            result["message"] = json!(restore_desktop()?);
         }
         Action::CreateFolder { name } => {
             let name = folder_name(&name)?;
@@ -260,14 +291,15 @@ pub(super) fn execute(value: Value) -> io::Result<Value> {
             rule,
             organize,
         } => {
-            let (i, changed, other) = collection::update(|s| -> io::Result<_> {
-                let i = put_rule(&mut s.rules, index, rule)?;
-                Ok((i, if organize { s.organize() } else { 0 }, s.count(OTHER)))
-            })??;
+            let edit = |s: &mut Settings| put_rule(&mut s.rules, index, rule);
+            let i = if organize {
+                let (i, report) = desktop::organize(edit)?;
+                result["message"] = json!(summary(report));
+                i
+            } else {
+                collection::update(edit)??
+            };
             result["index"] = json!(i);
-            if organize {
-                result["message"] = json!(summary(changed, other));
-            }
         }
         Action::MoveRule { index, down } => {
             let to = collection::update(|s| -> io::Result<_> {

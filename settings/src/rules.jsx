@@ -71,8 +71,9 @@ export default function Rules({ state, run }) {
       </div>
     </form>
     <dialog ref={preview} aria-labelledby="preview-title"><h2 id="preview-title">{t("预览变化", "Preview changes")}</h2>
+      <p>{t("「保存并整理」会应用以下分类并收起全部桌面图标。", "Save and organize applies these categories and hides all desktop icons.")}</p>
       {changes.length ? <ul className="changes">{changes.map(row => <li key={row.path}><span>{row.path}</span>
-        <small>{row.from} → {row.to}</small></li>)}</ul> : <p>{t("已有收藏的分类没有变化。", "No existing items would change category.")}</p>}
+        <small>{row.from} → {row.to}</small></li>)}</ul> : <p>{t("没有待收纳或调整的项目。", "There are no new items or category changes.")}</p>}
       <form method="dialog"><button autoFocus>{t("返回编辑", "Back to editing")}</button></form>
     </dialog>
   </>;

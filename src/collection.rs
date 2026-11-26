@@ -1,5 +1,6 @@
 // Collection design: .agents/notes/module.md#收藏分类与自动整理
 mod classify;
+pub(crate) mod desktop;
 use crate::{
     config::{self, Settings},
     language::Language,
@@ -174,6 +175,19 @@ impl Settings {
             }
         }
     }
+    fn automatic_item(&self, path: &Path, sort: bool) -> Item {
+        Item {
+            path: path.to_owned(),
+            group: if sort {
+                Group::Builtin(classify::classify(path, &self.rules))
+            } else {
+                OTHER
+            },
+            manual: false,
+            directory: path.is_dir(),
+        }
+    }
+
     pub fn place(&mut self, paths: &[PathBuf], placement: &Placement) {
         // Insert the batch against one stable anchor, retaining Explorer's selection order.
         let mut unique = Vec::new();
@@ -227,20 +241,8 @@ impl Settings {
                     },
                 );
             } else if old.is_none() {
-                let group = if self.auto_sort {
-                    Group::Builtin(classify::classify(path, &self.rules))
-                } else {
-                    OTHER
-                };
-                self.items.insert(
-                    insertion,
-                    Item {
-                        path: path.clone(),
-                        group,
-                        manual: false,
-                        directory: path.is_dir(),
-                    },
-                );
+                self.items
+                    .insert(insertion, self.automatic_item(path, self.auto_sort));
             } else {
                 continue;
             }
@@ -283,13 +285,19 @@ pub fn update<T>(apply: impl FnOnce(&mut Settings) -> T) -> io::Result<T> {
 }
 
 pub fn transaction<T>(apply: impl FnOnce(&mut Settings) -> T) -> io::Result<(T, bool)> {
-    let path = config::path()?;
-    let mut data = config::load(&path)?;
+    transaction_at(&config::path()?, |data| Ok(apply(data)))
+}
+
+fn transaction_at<T>(
+    path: &Path,
+    apply: impl FnOnce(&mut Settings) -> io::Result<T>,
+) -> io::Result<(T, bool)> {
+    let mut data = config::load(path)?;
     let before = data.clone();
-    let result = apply(&mut data);
+    let result = apply(&mut data)?;
     let changed = data != before;
     if changed {
-        config::save(&path, &data)?;
+        config::save(path, &data)?;
     }
     Ok((result, changed))
 }

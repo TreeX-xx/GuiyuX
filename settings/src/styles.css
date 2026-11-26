@@ -61,6 +61,7 @@ small { font-size: 12px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 57px; padding: 11px 16px; }
 .sheet > * + * { border-top: 1px solid var(--line); }
 .switch-row, .language-row { cursor: pointer; }
+.desktop-hint { margin: 0; padding: 0 16px 14px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .switch-row input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .switch { width: 36px; height: 20px; flex: none; border: 1px solid #858486; border-radius: 14px; display: flex; align-items: center; padding: 3px; }
 .switch::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: #d2d1ce; }
