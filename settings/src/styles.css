@@ -26,22 +26,36 @@ button.primary:hover:enabled { background: #eae1cf; }
 input:not([type=checkbox], [type=radio]) { padding: 5px 10px; min-width: 0; background: #222225; }
 input::placeholder { color: #a1a09d; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.layout { display: grid; grid-template-columns: clamp(154px, 23vw, 190px) minmax(0, 1fr); height: 100vh; }
-aside { background: #19191b; border-right: 1px solid #38383a; padding: 23px 12px; overflow-y: auto; }
-.brand { display: flex; gap: 9px; align-items: center; margin: 0 10px 28px; font-size: 19px; letter-spacing: -.5px; }
+.layout { --page-inset: clamp(19px, 4vw, 42px); display: grid; grid-template-columns: clamp(154px, 23vw, 190px) minmax(0, 1fr); height: 100vh; }
+aside { background: #19191b; border-right: 1px solid #38383a; overflow-y: auto; }
+.brand { display: flex; gap: 9px; align-items: center; padding: 21px 22px 24px; font-size: 19px; letter-spacing: -.5px; user-select: none; }
 .brand img { width: 27px; height: 27px; object-fit: contain; }
-nav { display: grid; gap: 4px; }
+nav { display: grid; gap: 4px; padding: 0 12px 20px; }
 nav button { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; min-height: 38px; text-align: left; color: #c6c5c4; position: relative; }
 nav button[aria-current=page] { color: #f9f8f5; background: #343436; }
 nav button[aria-current=page]::before { content: ""; position: absolute; inset: 12px auto 12px 0; width: 3px; border-radius: 2px; background: var(--accent); }
 .icon { font: 16px/1 "Segoe Fluent Icons", "Segoe MDL2 Assets"; flex: none; }
-main { min-width: 0; overflow: auto; padding: 27px clamp(19px, 4vw, 42px) 24px; scrollbar-color: #555457 transparent; }
+main { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.page-content { overflow: auto; padding: 0 var(--page-inset) 24px; scrollbar-color: #555457 transparent; }
+.page-content > .section-title:first-child { margin-top: 0; }
 h1, h2, p { margin: 0; }
 h1 { font-size: 27px; line-height: 1.25; font-weight: 650; letter-spacing: -.6px; }
 h2 { margin: 21px 0 8px; font-size: 14px; font-weight: 600; }
-.page-heading { margin-bottom: 21px; }
+.page-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; padding: 18px 12px 21px var(--page-inset); user-select: none; }
+/* WebView2 handles caption gestures natively. Older runtimes use Tauri's drag region. */
+[data-tauri-drag-region] { app-region: drag; }
+.brand > *, .page-heading > :is(h1, p) { pointer-events: none; }
 .page-heading p, small, .empty, dialog p, .notice { color: var(--muted); }
-.page-heading p { margin-top: 6px; }
+.page-heading p { grid-column: 1 / -1; margin: 5px calc(var(--page-inset) - 12px) 0 0; }
+.window-controls { app-region: no-drag; display: flex; gap: 2px; }
+.window-controls button { width: 39px; height: 32px; min-height: 32px; border: 0; background: transparent; color: #c8c7c5; }
+.window-controls .icon { font-size: 11px; }
+.window-controls button:hover:enabled { background: #37373a; color: #fff; }
+.window-controls button:active:enabled { background: #414144; }
+@media (forced-colors: none) {
+  .window-controls button:last-child:hover:enabled { background: #ac3b40; color: #fff; }
+  .window-controls button:last-child:active:enabled { background: #913239; }
+}
 small { font-size: 12px; }
 .sheet, .entry-list, .rule-form, .empty { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 57px; padding: 11px 16px; }
@@ -110,6 +124,7 @@ dialog::backdrop { background: #0008; }
 .changes { padding-left: 19px; overflow-wrap: anywhere; }
 .changes small { display: block; }
 @media (forced-colors: active) {
+  .window-controls button:hover:enabled { background: Highlight; color: HighlightText; forced-color-adjust: none; }
   .slider-track, .slider-range, .switch { border: 1px solid CanvasText; }
   .slider-range, .switch-row input:checked + .switch, nav button[aria-current=page]::before { background: Highlight; forced-color-adjust: none; }
   .slider-thumb, .entry[aria-pressed=true], nav button[aria-current=page], .option[data-highlighted] { outline: 1px solid Highlight; }

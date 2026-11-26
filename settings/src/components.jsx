@@ -14,6 +14,7 @@ const symbols = {
   archives: 0xf012, folders: 0xe8b7, other: 0xe712, right: 0xe76c,
   down: 0xe70d, check: 0xe73e, up: 0xe74a, lower: 0xe74b, back: 0xe72b,
   plus: 0xe710, remove: 0xe74d, pin: 0xe718, file: 0xe8a5, sort: 0xe8cb,
+  minimize: 0xe921, maximize: 0xe922, restore: 0xe923, close: 0xe8bb,
 };
 export function Icon({ name }) {
   return <span aria-hidden="true" className="icon">{String.fromCodePoint(symbols[name] ?? symbols.folders)}</span>;
@@ -37,9 +38,6 @@ export function Choice({ id, label, value, options, onChange }) {
   </Select.Root>;
 }
 
-export function Heading({ title, children }) {
-  return <header className="page-heading"><h1>{title}</h1><p>{children}</p></header>;
-}
 export function ToolButton({ label, icon, ...props }) {
   return <button type="button" className="tool" title={label} aria-label={label} {...props}><Icon name={icon}/></button>;
 }

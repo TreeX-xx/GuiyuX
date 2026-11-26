@@ -4,23 +4,46 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import logo from "../../assets/guiyuX.ico";
-import { Heading, Icon, LanguageContext, useText } from "./components";
+import { Icon, LanguageContext, ToolButton, useText } from "./components";
 import { finishRequests, request } from "./bridge";
 import Appearance from "./appearance";
 import Shortcuts from "./shortcuts";
 import Rules from "./rules";
 import "./styles.css";
 
-const pages = [
-  ["collection", "收纳", "Collection"], ["bar", "快捷栏", "Shortcut bar"],
-  ["rules", "整理规则", "Sorting rules"], ["appearance", "外观", "Appearance"],
-  ["language", "界面语言", "Language"],
-];
+const pages = {
+  collection: { title: ["收纳", "Collection"], description: ["管理灵动岛中的收藏和分类。", "Manage the items and groups in your island."] },
+  bar: { title: ["快捷栏", "Shortcut bar"], description: ["选择固定入口，调整它们在灵动岛上的顺序。", "Choose which shortcuts appear on the island and in what order."] },
+  rules: { title: ["整理规则", "Sorting rules"], description: ["规则从上到下匹配。手动指定的分类优先。", "Rules match from top to bottom. Manually assigned groups take priority."] },
+  appearance: { title: ["外观", "Appearance"], description: ["调整灵动岛和右键菜单的背景效果。", "Adjust the background of the island and its context menus."] },
+  language: { title: ["界面语言", "Language"], description: ["选择灵动岛、菜单和设置使用的语言。", "Choose the language for the island, menus, and settings."] },
+};
+
+// Window behavior is documented in .agents/notes/module.md#设置窗口与常驻核心.
+function WindowControls({ windowHandle, failed }) {
+  const t = useText();
+  const [maximized, setMaximized] = useState(false);
+  useEffect(() => {
+    let active = true;
+    function refresh() {
+      if (active) windowHandle.isMaximized().then(value => { if (active) setMaximized(value); }).catch(failed);
+    }
+    const subscription = windowHandle.onResized(refresh);
+    subscription.then(refresh, failed);
+    return () => { active = false; subscription.then(stop => stop(), () => {}); };
+  }, [windowHandle, failed]);
+
+  return <div className="window-controls" role="group" aria-label={t("窗口操作", "Window controls")}>
+    <ToolButton icon="minimize" label={t("最小化", "Minimize")} onClick={() => windowHandle.minimize().catch(failed)}/>
+    <ToolButton icon={maximized ? "restore" : "maximize"} label={maximized ? t("还原", "Restore") : t("最大化", "Maximize")}
+      onClick={() => windowHandle.toggleMaximize().catch(failed)}/>
+    <ToolButton icon="close" label={t("关闭", "Close")} onClick={() => windowHandle.close().catch(failed)}/>
+  </div>;
+}
 
 function Collection({ state, run }) {
   const t = useText();
   return <>
-    <Heading title={t("收纳", "Collection")}>{t("管理灵动岛中的收藏和分类。", "Manage the items and groups in your island.")}</Heading>
     <section className="sheet">
       <label className="setting-row switch-row">
         <span>{t("自动整理新收藏", "Sort new items automatically")}</span>
@@ -43,7 +66,6 @@ function Collection({ state, run }) {
 function Language({ state, run }) {
   const t = useText();
   return <>
-    <Heading title={t("界面语言", "Language")}>{t("选择灵动岛、菜单和设置使用的语言。", "Choose the language for the island, menus, and settings.")}</Heading>
     <div className="sheet" role="radiogroup" aria-label={t("界面语言", "Language")}>
       {[["system", t("跟随系统", "Use system language")], ["zh-CN", "简体中文"], ["en", "English"]].map(([value, name]) =>
         <label className="setting-row language-row" key={value}>
@@ -56,6 +78,7 @@ function Language({ state, run }) {
 }
 
 function Settings() {
+  const [windowHandle] = useState(getCurrentWindow);
   const [state, setState] = useState(null);
   const [page, setPage] = useState("collection");
   const [status, setStatus] = useState("");
@@ -102,7 +125,6 @@ function Settings() {
   }, [ready, locale, failed]);
 
   useEffect(() => {
-    const windowHandle = getCurrentWindow();
     const close = windowHandle.onCloseRequested(finishRequests);
     close.catch(failed);
     function escape(event) {
@@ -115,7 +137,7 @@ function Settings() {
       window.removeEventListener("keydown", escape);
       close.then(unlisten => unlisten()).catch(failed);
     };
-  }, [failed]);
+  }, [windowHandle, failed]);
 
   async function run(action, notice = "") {
     try {
@@ -133,22 +155,29 @@ function Settings() {
   }
   return <LanguageContext.Provider value={locale}>
     <div className="layout">
-      <aside><div className="brand"><img src={logo} alt=""/><strong>GuiyuX</strong></div>
-        <nav aria-label={t("设置页面", "Settings pages")}>{pages.map(([id, zh, en]) =>
+      <aside><div className="brand" data-tauri-drag-region><img src={logo} alt="" draggable="false"/><strong>GuiyuX</strong></div>
+        <nav aria-label={t("设置页面", "Settings pages")}>{Object.entries(pages).map(([id, { title }]) =>
           <button key={id} aria-current={page === id ? "page" : undefined} onClick={() => navigate(id)}>
-            <Icon name={id}/>{t(zh, en)}
+            <Icon name={id}/>{t(...title)}
           </button>)}</nav>
       </aside>
-      <main key={page}>
-        {state && page === "collection" && <Collection state={state} run={run}/>}
-        {state && page === "bar" && <Shortcuts state={state} run={run} failed={failed}/>}
-        {state && page === "rules" && <Rules state={state} run={run}/>}
-        {state && page === "appearance" && <Appearance state={state} failed={failed}
-          saved={appearance => setState(s => ({ ...s, appearance }))}/>}
-        {state && page === "language" && <Language state={state} run={run}/>}
-        <div role="status" className="notice">{status}</div>
-        {error && <div role="alert" className="error">{error}</div>}
-        {!state && error && <button onClick={() => { setError(""); setAttempt(n => n + 1); }}>{t("重试", "Retry")}</button>}
+      <main>
+        <header className="page-heading" data-tauri-drag-region>
+          <h1>{t(...pages[page].title)}</h1>
+          <WindowControls windowHandle={windowHandle} failed={failed}/>
+          <p>{t(...pages[page].description)}</p>
+        </header>
+        <div className="page-content" key={page}>
+          {state && page === "collection" && <Collection state={state} run={run}/>}
+          {state && page === "bar" && <Shortcuts state={state} run={run} failed={failed}/>}
+          {state && page === "rules" && <Rules state={state} run={run}/>}
+          {state && page === "appearance" && <Appearance state={state} failed={failed}
+            saved={appearance => setState(s => ({ ...s, appearance }))}/>}
+          {state && page === "language" && <Language state={state} run={run}/>}
+          <div role="status" className="notice">{status}</div>
+          {error && <div role="alert" className="error">{error}</div>}
+          {!state && error && <button onClick={() => { setError(""); setAttempt(n => n + 1); }}>{t("重试", "Retry")}</button>}
+        </div>
       </main>
     </div>
   </LanguageContext.Provider>;

@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Heading, Icon, ToolButton, useText } from "./components";
+import { Icon, ToolButton, useText } from "./components";
 
 function editorFor(row) {
   return {
@@ -37,7 +37,6 @@ export default function Shortcuts({ state, run, failed }) {
     } catch (e) { failed(e); }
   }
   return <>
-    <Heading title={t("快捷栏", "Shortcut bar")}>{t("选择固定入口，调整它们在灵动岛上的顺序。", "Choose which shortcuts appear on the island and in what order.")}</Heading>
     <div className="section-title"><h2>{t("快捷入口", "Shortcuts")}</h2><div className="actions">
       <ToolButton icon="up" label={t("上移", "Move up")} disabled={!entry?.pinned || index === 0}
         onClick={() => edit({ type: "moveShortcut", key: entry.key, down: false })}/>

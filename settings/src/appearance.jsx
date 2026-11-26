@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as Slider from "@radix-ui/react-slider";
-import { Choice, Heading, useText } from "./components";
+import { Choice, useText } from "./components";
 import { previewAppearance, commitAppearance } from "./bridge";
 
 export default function Appearance({ state, saved, failed }) {
@@ -70,7 +70,6 @@ export default function Appearance({ state, saved, failed }) {
     }
   }
   return <>
-    <Heading title={t("外观","Appearance")}>{t("调整灵动岛和右键菜单的背景效果。","Adjust the background of the island and its context menus.")}</Heading>
     <div className="material-preview" aria-hidden="true">
       <div className={'sample-island' + (style.frosted ? ' frosted' : '')}
         style={{"--opacity": 1 - style.transparency / 100}}><i/><i/><i/></div>

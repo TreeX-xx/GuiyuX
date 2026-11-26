@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { Choice, Heading, ToolButton, useText } from "./components";
+import { Choice, ToolButton, useText } from "./components";
 
 const emptyRule = { kind: "extension", pattern: "", category: "documents" };
 
@@ -38,7 +38,6 @@ export default function Rules({ state, run }) {
     }
   }
   return <>
-    <Heading title={t("整理规则", "Sorting rules")}>{t("规则从上到下匹配。手动指定的分类优先。", "Rules match from top to bottom. Manually assigned groups take priority.")}</Heading>
     <div className="section-title"><h2>{t("优先顺序", "Priority")}</h2>
       <div className="actions">
         <ToolButton icon="up" label={t("上移", "Move up")} disabled={index == null || index === 0} onClick={() => move(false)}/>

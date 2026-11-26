@@ -13,6 +13,7 @@
       "height": 592,
       "minWidth": 640,
       "minHeight": 440,
+      "decorations": false,
       "theme": "Dark",
       "backgroundColor": "#202022",
       "dragDropEnabled": false,
@@ -23,7 +24,12 @@
       "capabilities": [{
         "identifier": "local-settings",
         "windows": ["settings"],
-        "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-close", "core:window:allow-destroy", "dialog:allow-open"]
+        "permissions": [
+          "core:event:allow-listen", "core:event:allow-unlisten",
+          "core:window:allow-start-dragging", "core:window:allow-internal-toggle-maximize",
+          "core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-is-maximized",
+          "core:window:allow-close", "core:window:allow-destroy", "dialog:allow-open"
+        ]
       }]
     }
   },
