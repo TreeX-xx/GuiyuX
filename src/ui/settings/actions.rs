@@ -100,7 +100,8 @@ fn snapshot(s: &Settings) -> Value {
     json!({
         "language":lang, "locale": if lang.is_chinese() {"zh-CN"} else {"en"},
         "systemLanguage": Language::System.native_name(), "appearance":s.appearance,
-        "dock":s.dock, "autoSort":s.auto_sort, "groups":groups, "bar":bar, "rules":s.rules
+        "dock":s.dock, "autoSort":s.auto_sort, "groups":groups, "bar":bar,
+        "barCapacity":collection::BAR_CAPACITY, "rules":s.rules
     })
 }
 

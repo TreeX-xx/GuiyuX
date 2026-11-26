@@ -20,6 +20,10 @@ export function Icon({ name }) {
   return <span aria-hidden="true" className="icon">{String.fromCodePoint(symbols[name] ?? symbols.folders)}</span>;
 }
 
+export function ShortcutIcon({ row }) {
+  return <Icon name={row.key.group?.builtin || (row.key.group || row.directory ? "folders" : "file")}/>;
+}
+
 export function Choice({ id, label, value, options, onChange }) {
   return <Select.Root value={value} onValueChange={onChange}>
     <Select.Trigger id={id} aria-label={label} className="choice">

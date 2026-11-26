@@ -167,8 +167,7 @@ pub(super) fn collection_changed() -> io::Result<()> {
         let hwnd = ISLAND.get();
         tips::dismiss();
         autohide::reset(hwnd);
-        unsafe { KillTimer(hwnd, RESIZE_TIMER) };
-        TRANSITION.set(None);
+        stop_transition(hwnd);
         FEEDBACK.set(None);
         finish_collapse();
     }
@@ -178,7 +177,6 @@ pub(super) fn collection_changed() -> io::Result<()> {
 
 pub(super) fn show_group(group: Group) -> io::Result<()> {
     nav::reload()?;
-    EXPANDED.set(true);
     VIEW.set(View::Home);
     nav::show(View::Group(group));
     unsafe {
@@ -197,9 +195,13 @@ fn finish_collapse() {
 }
 
 fn expand_home() {
-    EXPANDED.set(true);
     nav::show(View::Home);
     autohide::check_later();
+}
+
+fn stop_transition(hwnd: HWND) {
+    TRANSITION.set(None);
+    unsafe { KillTimer(hwnd, RESIZE_TIMER) };
 }
 
 fn start_transition(hwnd: HWND, closing: bool, keep_content: bool) {
@@ -220,8 +222,7 @@ fn start_transition(hwnd: HWND, closing: bool, keep_content: bool) {
                 closing,
             }));
         } else {
-            TRANSITION.set(None);
-            KillTimer(hwnd, RESIZE_TIMER);
+            stop_transition(hwnd);
             if closing {
                 finish_collapse();
             }
@@ -260,10 +261,7 @@ pub(super) fn refresh() {
     if progress == 1.0
         && let Some(m) = transition
     {
-        TRANSITION.set(None);
-        unsafe {
-            KillTimer(hwnd, RESIZE_TIMER);
-        }
+        stop_transition(hwnd);
         if m.closing {
             finish_collapse();
         }
@@ -733,11 +731,7 @@ pub(super) unsafe extern "system" fn procedure(
             }
             if TRANSITION.get().is_some_and(|m| m.closing) {
                 if id != IDCANCEL {
-                    VIEW.set(View::Home);
-                    PAGE.set(0);
-                    nav::rebuild();
-                    start_transition(hwnd, false, false);
-                    refresh();
+                    expand_home();
                 }
                 return 0;
             }

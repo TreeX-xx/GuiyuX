@@ -109,11 +109,28 @@ small { font-size: 12px; }
 .material-preview[data-edge="left"] { justify-items: start; --tuck-x: calc(var(--cap-peek) - 100%); }
 .material-preview[data-edge="right"] { justify-items: end; --tuck-x: calc(100% - var(--cap-peek)); }
 .material-preview:is([data-edge="left"], [data-edge="right"]) .sample-island { flex-direction: column; width: var(--cap-side-depth); height: min(100%, var(--cap-side-length)); }
-.material-preview[data-mode="autoHide"] { padding: 0; }
+.material-preview[data-mode="autoHide"] { padding: 0; container-type: size; }
 .material-preview[data-mode="autoHide"] .sample-island:not(:hover) { transform: translate(var(--tuck-x, 0), var(--tuck-y, 0)); }
-@media (prefers-reduced-motion: no-preference) {
-  .sample-island { transition: transform var(--cap-time) ease-out; }
+.sample-shortcuts { display: none; }
+.material-preview[data-mode="autoHide"] .sample-island:hover {
+  font-size: min(1px, calc(100cqw / var(--bar-length)));
+  width: calc(var(--bar-length) * 1em); height: 62em; gap: 0; border-radius: 12em;
 }
+.material-preview[data-mode="autoHide"]:is([data-edge="left"], [data-edge="right"]) .sample-island:hover {
+  font-size: min(1px, calc(100cqh / var(--bar-length)));
+  width: 62em; height: calc(var(--bar-length) * 1em);
+}
+.material-preview[data-mode="autoHide"] .sample-island:hover > i { display: none; }
+.sample-island:hover .sample-shortcuts {
+  display: flex; flex-direction: inherit; align-items: center; width: 100%; height: 100%; padding: 0 7em;
+  color: rgb(var(--cap-ink));
+}
+.material-preview:is([data-edge="left"], [data-edge="right"]) .sample-shortcuts { padding: 7em 0; }
+.sample-shortcut { flex: 1; min-width: 0; min-height: 0; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: center; gap: 2em; }
+.sample-shortcut .icon { font-size: 26em; }
+.sample-label { max-width: 100%; font-size: 12em; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sample-collapse { flex: 0 0 32em; display: grid; place-items: center; color: var(--muted); }
+.sample-collapse .icon { font-size: 16em; }
 .dock-hint { display: block; }
 .slider-setting { padding: 0 16px 12px; }
 .slider-setting .setting-row { padding: 9px 0 3px; }

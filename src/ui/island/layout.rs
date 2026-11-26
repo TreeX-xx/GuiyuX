@@ -24,7 +24,7 @@ impl Dock {
             return (178, 36);
         }
         if self.mode == DockMode::AutoHide {
-            return capsule::STYLE.size(self.edge, hover);
+            return capsule::STYLE.tucked_size(self.edge);
         }
         self.edge.orient(
             100 + (hover * 15.).round() as i32,

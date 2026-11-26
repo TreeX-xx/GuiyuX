@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as Slider from "@radix-ui/react-slider";
-import { Choice, useText } from "./components";
+import { Choice, Icon, ShortcutIcon, useText } from "./components";
 import { previewAppearance, commitAppearance } from "./bridge";
 import capsule from "../../assets/dock-capsule.json";
 
@@ -8,9 +8,30 @@ const capsuleStyle = {
   "--cap-length": `${capsule.length}px`, "--cap-depth": `${capsule.depth}px`,
   "--cap-side-length": `${capsule.sideLength}px`, "--cap-side-depth": `${capsule.sideDepth}px`,
   "--cap-peek": `${capsule.peek}px`, "--cap-dot": `${capsule.dot}px`, "--cap-gap": `${capsule.gap}px`,
-  "--cap-time": `${capsule.slideMs}ms`, "--cap-fill": capsule.fill.join(" "),
+  "--cap-fill": capsule.fill.join(" "),
   "--cap-ink": capsule.ink.join(" "), "--cap-border": capsule.borderAlpha / 255,
 };
+
+function DockPreview({ state, style }) {
+  const t = useText();
+  const { edge, mode } = state.dock;
+  const pins = state.bar.filter(row => row.pinned).slice(0, state.barCapacity);
+  const collapse = { top: "up", bottom: "down", left: "back", right: "right" }[edge];
+  return <div className="material-preview" aria-hidden="true" data-edge={edge} data-mode={mode}
+    style={{ ...capsuleStyle, "--opacity": 1 - style.transparency / 100, "--bar-length": 48 + 64 * (pins.length + 1) }}>
+    <div className={'sample-island' + (style.frosted ? ' frosted' : '')}>
+      <i/><i/><i/>
+      {mode === "autoHide" && <div className="sample-shortcuts">
+        {pins.map(row => <span className="sample-shortcut" key={JSON.stringify(row.key)}>
+          <ShortcutIcon row={row}/><span className="sample-label">{row.key.item && !row.directory
+            ? row.title.replace(/\.(lnk|url)$/i, "") : row.title}</span>
+        </span>)}
+        <span className="sample-shortcut"><Icon name="other"/><span className="sample-label">{t("更多", "More")}</span></span>
+        <span className="sample-collapse"><Icon name={collapse}/></span>
+      </div>}
+    </div>
+  </div>;
+}
 
 export default function Appearance({ state, run, saved, failed }) {
   const t = useText();
@@ -79,10 +100,7 @@ export default function Appearance({ state, run, saved, failed }) {
     }
   }
   return <>
-    <div className="material-preview" aria-hidden="true" data-edge={state.dock.edge} data-mode={state.dock.mode} style={capsuleStyle}>
-      <div className={'sample-island' + (style.frosted ? ' frosted' : '')}
-        style={{"--opacity": 1 - style.transparency / 100}}><i/><i/><i/></div>
-    </div>
+    <DockPreview state={state} style={style}/>
     <section className="sheet">
       <div className="setting-row"><label htmlFor="dock-edge">{t("停靠位置", "Dock position")}</label>
         <Choice id="dock-edge" label={t("停靠位置", "Dock position")} value={state.dock.edge}
@@ -92,7 +110,7 @@ export default function Appearance({ state, run, saved, failed }) {
       </div>
       <div className="setting-row"><div><label htmlFor="dock-mode">{t("显示方式", "Display mode")}</label>
         <small className="dock-hint">{state.dock.mode === "autoHide"
-          ? t("移到边缘露出的圆弧上可滑出胶囊，点击打开快捷栏。", "Hover over the visible edge of the capsule, then click to open the shortcut bar.")
+          ? t("鼠标移到圆弧上即展开快捷栏，移开后自动收起。", "Hover over the visible edge to open the shortcut bar. Move away to hide it.")
           : t("点击胶囊展开快捷栏。", "Click the capsule to open the shortcut bar.")}</small></div>
         <Choice id="dock-mode" label={t("显示方式", "Display mode")} value={state.dock.mode}
           options={[["alwaysVisible", t("常驻", "Always visible")], ["autoHide", t("自动隐藏", "Auto-hide")]]}

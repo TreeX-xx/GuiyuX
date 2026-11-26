@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Icon, ToolButton, useText } from "./components";
+import { Icon, ShortcutIcon, ToolButton, useText } from "./components";
 
 function editorFor(row) {
   return {
@@ -48,7 +48,7 @@ export default function Shortcuts({ state, run, failed }) {
     <div className="entry-list" aria-label={t("快捷入口", "Shortcuts")}>
       {state.bar.map(row => <button className="entry" key={JSON.stringify(row.key)} aria-pressed={entry === row}
         title={row.key.item || row.title} onClick={() => setEditor(editorFor(row))}>
-        <Icon name={row.key.group?.builtin || (row.key.group || row.directory ? "folders" : "file")}/>
+        <ShortcutIcon row={row}/>
         <span>{row.title}{row.key.item && <small>{row.key.item}</small>}</span>
         {row.pinned && <span aria-label={t("已固定", "Pinned")}><Icon name="pin"/></span>}
       </button>)}

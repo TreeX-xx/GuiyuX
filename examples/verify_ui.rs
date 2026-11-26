@@ -126,11 +126,11 @@ fn command(hwnd: HWND, id: usize) -> io::Result<()> {
     check(unsafe { PostMessageW(hwnd, WM_COMMAND, id, 0) })
 }
 
-fn bottom_capsule(hwnd: HWND, work: &RECT, depth: i32) -> bool {
+fn tucked_bottom_capsule(hwnd: HWND, work: &RECT) -> bool {
     let mut rect = RECT::default();
     (unsafe { GetWindowRect(hwnd, &mut rect) != 0 })
         && rect.bottom == work.bottom
-        && rect.top == work.bottom - depth
+        && rect.top == work.bottom - 5
         && rect.right - rect.left == 120
         && (rect.left + rect.right - work.left - work.right).abs() <= 1
 }
@@ -174,15 +174,15 @@ fn main() -> io::Result<()> {
     check(unsafe {
         SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut work as *mut RECT).cast(), 0)
     })?;
-    let capsule_at = |depth| {
-        bottom_capsule(island, &work, depth) && unsafe { IsWindowVisible(button(200)) == 0 }
-    };
-    wait("tucked bottom capsule", || capsule_at(5).then_some(()))?;
-    // A private desktop has no physical pointer. The native handler test drives
-    // enter/leave and checks the actual window bounds without moving one here.
-    command(island, 101)?;
-    wait("expanded shortcuts", || {
-        (title(button(200)) == "Documents").then_some(())
+    wait("tucked bottom capsule", || {
+        (tucked_bottom_capsule(island, &work) && unsafe { IsWindowVisible(button(200)) == 0 })
+            .then_some(())
+    })?;
+    // Deliver a move to the visible arc; all desktop input stays with the user.
+    check(unsafe { PostMessageW(button(101), WM_MOUSEMOVE, 0, (2 << 16) | 60) })?;
+    wait("shortcuts visible on hover", || {
+        (unsafe { IsWindowVisible(button(200)) != 0 } && title(button(200)) == "Documents")
+            .then_some(())
     })?;
     command(island, 200)?;
     wait("first grid page", || {
@@ -229,7 +229,7 @@ fn main() -> io::Result<()> {
         (unsafe { WaitForSingleObject(process.as_raw_handle(), 0) } == WAIT_OBJECT_0).then_some(())
     })?;
     println!(
-        "Private desktop checks passed: tucked bottom capsule, click to open, grid paging, settings close and reopen."
+        "Private desktop checks passed: tucked bottom capsule, hover to open, grid paging, settings close and reopen."
     );
     Ok(())
 }

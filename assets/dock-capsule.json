@@ -6,7 +6,6 @@
   "peek": 5,
   "dot": 7,
   "gap": 10,
-  "slideMs": 180,
   "fill": [30, 31, 34],
   "ink": [238, 233, 223],
   "borderAlpha": 170

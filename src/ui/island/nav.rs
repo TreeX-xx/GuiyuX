@@ -198,6 +198,7 @@ pub(super) fn rebuild() {
 }
 
 pub(super) fn show(view: View) {
+    let opening = !EXPANDED.replace(true) || TRANSITION.get().is_some_and(|m| m.closing);
     motion::clear_hover();
     let old = VIEW.replace(view);
     if matches!(view, View::Group(_)) && !matches!(old, View::Group(_)) {
@@ -206,14 +207,18 @@ pub(super) fn show(view: View) {
     PAGE.set(0);
     FEEDBACK.set(None);
     rebuild();
-    start_transition(
-        ISLAND.get(),
-        false,
-        matches!(
-            (old, view),
-            (View::Home, View::More) | (View::More, View::Home)
-        ),
-    );
+    if opening && view == View::Home && dock().mode == DockMode::AutoHide {
+        stop_transition(ISLAND.get());
+    } else {
+        start_transition(
+            ISLAND.get(),
+            false,
+            matches!(
+                (old, view),
+                (View::Home, View::More) | (View::More, View::Home)
+            ),
+        );
+    }
     refresh();
 }
 pub(super) fn back() {

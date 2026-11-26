@@ -19,17 +19,8 @@ impl Hover {
         let Some(start) = self.started else {
             return target;
         };
-        let elapsed = now.duration_since(start).as_secs_f32();
-        let eased = if BUTTONS[slot] == HEADER && capsule::active() {
-            let remaining = (target - self.from[slot]).abs();
-            if remaining == 0. {
-                return target;
-            }
-            capsule::ease_out(elapsed * 1000. / (capsule::STYLE.slide_ms as f32 * remaining))
-        } else {
-            let t = (elapsed / HOVER_SECONDS).min(1.);
-            t * t * (3. - 2. * t)
-        };
+        let t = (now.duration_since(start).as_secs_f32() / HOVER_SECONDS).min(1.);
+        let eased = t * t * (3. - 2. * t);
         self.from[slot] + (target - self.from[slot]) * eased
     }
 }
@@ -158,8 +149,6 @@ pub(super) fn tick(hwnd: HWND) {
         t.elapsed().as_secs_f32()
             >= if (FIRST..FIRST + SLOTS as i32).contains(&hover.target) {
                 TILT_SECONDS
-            } else if capsule::active() {
-                capsule::STYLE.slide_ms as f32 / 1000.
             } else {
                 HOVER_SECONDS
             }
