@@ -23,6 +23,7 @@ use collection::BAR_CAPACITY;
 use nav::{VIEW, View};
 pub(super) mod motion;
 mod surface;
+mod tiles;
 mod tips;
 
 const PRESENT: u32 = WM_APP + 1;
@@ -31,10 +32,8 @@ const RESIZE_TIMER: usize = 3;
 const HOVER_TIMER: usize = 2;
 const HEADER: i32 = 101;
 const FIRST: i32 = 200;
-const FILE_ROWS: usize = 5;
 const BAR_SLOTS: usize = BAR_CAPACITY + 1;
-const GRID_COLUMNS: usize = 3;
-const GRID_PAGE: usize = GRID_COLUMNS * 4;
+use tiles::PAGE_SIZE as GRID_PAGE;
 const SLOTS: usize = BAR_SLOTS + GRID_PAGE;
 const PREV: i32 = 300;
 const NEXT: i32 = 301;
@@ -77,6 +76,53 @@ pub(super) fn input_mode(msg: u32) {
     if KEYBOARD.replace(keyboard) != keyboard {
         schedule_frame(ISLAND.get());
     }
+}
+
+pub(super) fn grid_key(msg: &MSG) -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        SetFocus, VK_DOWN, VK_LEFT, VK_NEXT, VK_PRIOR, VK_RIGHT, VK_UP,
+    };
+    if msg.message != WM_KEYDOWN || !EXPANDED.get() || VIEW.get() == View::Home {
+        return false;
+    }
+    let first = nav::content_first();
+    let id = unsafe { GetDlgCtrlID(msg.hwnd) };
+    let count = nav::len();
+    if !(first..first + GRID_PAGE as i32).contains(&id) || count == 0 {
+        return false;
+    }
+    let index = PAGE.get() * GRID_PAGE + (id - first) as usize;
+    let next = match msg.wParam as u16 {
+        VK_LEFT => index.saturating_sub(1),
+        VK_RIGHT => (index + 1).min(count - 1),
+        VK_UP => index.checked_sub(tiles::COLUMNS).unwrap_or(index),
+        VK_DOWN if index / tiles::COLUMNS < (count - 1) / tiles::COLUMNS => {
+            (index + tiles::COLUMNS).min(count - 1)
+        }
+        VK_DOWN => index,
+        VK_PRIOR => {
+            if PAGE.get() > 0 {
+                index - GRID_PAGE
+            } else {
+                index
+            }
+        }
+        VK_NEXT => {
+            if (PAGE.get() + 1) * GRID_PAGE < count {
+                (index + GRID_PAGE).min(count - 1)
+            } else {
+                index
+            }
+        }
+        _ => return false,
+    };
+    if PAGE.replace(next / GRID_PAGE) != next / GRID_PAGE {
+        tips::dismiss();
+        motion::clear_hover();
+        refresh();
+    }
+    unsafe { SetFocus(GetDlgItem(ISLAND.get(), first + (next % GRID_PAGE) as i32)) };
+    true
 }
 
 pub(super) fn open() -> io::Result<()> {
@@ -206,41 +252,34 @@ pub(super) fn refresh() {
     {
         let view = VIEW.get();
         let count = nav::len();
-        let size = nav::page_size();
+        let size = GRID_PAGE;
         let start = PAGE.get() * size;
         let rows = count.saturating_sub(start).min(size);
         let paging = count > size;
         let category_bar = expanded && nav::toolbar();
         let board = expanded && view == View::More;
-        let cell_width = 48;
+        let cell_width = tiles::BAR_CELL;
         let bar_width = 16 + cell_width * nav::bar_len() as i32 + 32;
         let w = if board {
-            504.min(unsafe { GetSystemMetrics(SM_CXSCREEN) } - 12)
+            bar_width
+                .max(tiles::width(count))
+                .min(unsafe { GetSystemMetrics(SM_CXSCREEN) } - 12)
         } else if category_bar {
             bar_width
         } else if expanded {
-            376
+            40 + tiles::width(count)
         } else if FEEDBACK.get().is_some() {
             178
         } else {
             100 + (hover * 15.0).round() as i32
         };
+        let footer = paging || FEEDBACK.get().is_some();
         let h = if board {
-            64 + rows.max(1).div_ceil(GRID_COLUMNS) as i32 * 50
-                + if paging || FEEDBACK.get().is_some() {
-                    36
-                } else {
-                    0
-                }
+            tiles::BAR_DEPTH + tiles::height(count, footer)
         } else if category_bar {
-            if FEEDBACK.get().is_some() { 76 } else { 50 }
+            tiles::BAR_DEPTH + if footer { 26 } else { 0 }
         } else if expanded {
-            8 + (rows.max(1) as i32) * 52
-                + if paging || FEEDBACK.get().is_some() {
-                    40
-                } else {
-                    10
-                }
+            tiles::height(count, footer)
         } else if FEEDBACK.get().is_some() {
             36
         } else {
@@ -279,7 +318,7 @@ pub(super) fn refresh() {
         let bar_slot = |x: i32, width: i32| {
             let span = w.min(bar_width);
             let edge = |n: i32| (w - span) / 2 + (n * span + bar_width / 2) / bar_width;
-            let height = h.min(50);
+            let height = h.min(tiles::BAR_DEPTH);
             let inset = (height + 5) / 10;
             [
                 edge(x),
@@ -313,21 +352,17 @@ pub(super) fn refresh() {
             let rect = if category_bar && slot < BAR_SLOTS {
                 bar_slot(8 + slot as i32 * cell_width, cell_width)
             } else if board && slot >= BAR_SLOTS {
-                let grid = slot - BAR_SLOTS;
-                let width = (w - 24).max(6) / GRID_COLUMNS as i32;
-                [
-                    12 + (grid % GRID_COLUMNS) as i32 * width,
-                    58 + (grid / GRID_COLUMNS) as i32 * 50,
-                    (width - 4).max(1),
-                    46,
-                ]
+                tiles::cell(area(0, tiles::BAR_DEPTH, w, h), count, slot - BAR_SLOTS)
             } else {
-                [40, 8 + 52 * slot as i32, (w - 50).max(1), 48]
+                tiles::cell(area(40, 0, w, h), count, slot)
             };
             place(
                 hwnd,
                 id,
-                row.as_ref().map_or("", |r| r.title.as_str()),
+                row.as_ref()
+                    .map(nav::Row::full_name)
+                    .as_deref()
+                    .unwrap_or(""),
                 rect,
                 expanded && row.is_some(),
             );
@@ -400,7 +435,6 @@ fn draw(d: &DRAWITEMSTRUCT, ink: HDC) {
         HEADER if nav::toolbar() => Some(art::Symbol::Up),
         HEADER | PREV => Some(art::Symbol::Left),
         NEXT => Some(art::Symbol::Right),
-        id if nav::bar_slot(id) => row.as_ref().map(|row| row.symbol),
         _ => None,
     };
     if let Some(symbol) = symbol {
@@ -415,12 +449,15 @@ fn draw(d: &DRAWITEMSTRUCT, ink: HDC) {
         );
         return;
     }
-    let shade = art::file_row(dc, r, hover, focused, pressed);
     if let Some(row) = row.as_ref() {
-        let icon_rect = area(8, 6, 44, 42);
+        let shade = art::tile_background(dc, r, hover, focused, pressed);
+        let label_height = 18;
+        let icon_side = (r.bottom - label_height - 2).min(34).min(r.right).max(0);
+        let x = (r.right - icon_side) / 2;
+        let y = (r.bottom - label_height - icon_side) / 2;
         art::emblem(
             dc,
-            icon_rect,
+            area(x, y, x + icon_side, y + icon_side),
             art::Icon {
                 symbol: row.symbol,
                 file,
@@ -429,23 +466,13 @@ fn draw(d: &DRAWITEMSTRUCT, ink: HDC) {
             SILVER,
             tilt,
         );
-        let board = VIEW.get() == View::More;
-        let left = if board { 45 } else { 52 };
         island_text(
             ink,
-            area(left, 3, r.right - 8, 26),
+            area(2, r.bottom - label_height, r.right - 2, r.bottom),
             &row.title,
-            if board { 14 } else { 16 },
+            12,
             INK,
-            DT_LEFT,
-        );
-        island_text(
-            ink,
-            area(left, 24, r.right - 8, 43),
-            &row.detail,
-            13,
-            0xd8d4d2,
-            DT_LEFT,
+            DT_CENTER,
         );
     }
 }
@@ -514,11 +541,20 @@ pub(super) fn appearance_changed() {
 fn paint_background(dc: HDC, ink: HDC, mut r: RECT) {
     fill(dc, &r, BG);
     if EXPANDED.get() && VIEW.get() == View::More {
-        fill(dc, &area(12, 49, (r.right - 12).max(13), 50), EDGE);
+        fill(
+            dc,
+            &area(
+                12,
+                tiles::BAR_DEPTH - 1,
+                (r.right - 12).max(13),
+                tiles::BAR_DEPTH,
+            ),
+            EDGE,
+        );
     }
     if EXPANDED.get() && VIEW.get() == View::Home {
         if let Some(message) = FEEDBACK.get() {
-            r.top = 50;
+            r.top = tiles::BAR_DEPTH;
             island_text(ink, r, message, 14, SILVER, DT_CENTER);
         }
     } else if EXPANDED.get() {
@@ -537,12 +573,12 @@ fn paint_background(dc: HDC, ink: HDC, mut r: RECT) {
         if let Some(message) = FEEDBACK.get() {
             r.top = r.bottom - 40;
             island_text(ink, r, message, 14, SILVER, DT_CENTER);
-        } else if n > nav::page_size() {
+        } else if n > GRID_PAGE {
             r.top = r.bottom - 40;
             island_text(
                 ink,
                 r,
-                &format!("{} / {}", PAGE.get() + 1, n.div_ceil(nav::page_size())),
+                &format!("{} / {}", PAGE.get() + 1, n.div_ceil(GRID_PAGE)),
                 13,
                 MUTED,
                 DT_CENTER,
@@ -708,7 +744,7 @@ pub(super) unsafe extern "system" fn procedure(
                     PAGE.set(if id == PREV {
                         PAGE.get().saturating_sub(1)
                     } else {
-                        (PAGE.get() + 1).min(nav::len().saturating_sub(1) / nav::page_size())
+                        (PAGE.get() + 1).min(nav::len().saturating_sub(1) / GRID_PAGE)
                     });
                     refresh();
                     unsafe {

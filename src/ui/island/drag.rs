@@ -104,8 +104,8 @@ fn hit(point: POINT) -> Hit {
             },
             Action::Open(Shortcut::Item(path)) => {
                 if let View::Group(g) = VIEW.get() {
-                    let after = point.y >= (r.top + r.bottom) / 2;
-                    let index = PAGE.get() * FILE_ROWS + (id - FIRST) as usize;
+                    let after = point.x >= (r.left + r.right) / 2;
+                    let index = PAGE.get() * GRID_PAGE + (id - FIRST) as usize;
                     let before = if after {
                         nav::row(index + 1).and_then(|r| match r.action {
                             Action::Open(Shortcut::Item(p)) => Some(p),
@@ -114,10 +114,10 @@ fn hit(point: POINT) -> Hit {
                     } else {
                         Some(path)
                     };
-                    let y = if after { r.bottom - 2 } else { r.top };
+                    let x = if after { r.right - 2 } else { r.left };
                     Hit {
                         place: Placement::InGroup(g, before),
-                        line: Some(area(r.left + 4, y, r.right - 4, y + 2)),
+                        line: Some(area(x, r.top + 4, x + 2, r.bottom - 4)),
                         ..Hit::default()
                     }
                 } else {
@@ -585,6 +585,41 @@ mod tests {
         assert_eq!(state.items[0].group, folder);
         assert!(state.items[0].manual);
         assert_eq!(state.bar[0], Shortcut::Item(path));
+
+        let files: Vec<_> = (0..GRID_PAGE + 2)
+            .map(|i| PathBuf::from(format!("item-{i}.txt")))
+            .collect();
+        collection::update(|s| {
+            s.items.extend(files.iter().map(|path| collection::Item {
+                path: path.clone(),
+                group: folder,
+                directory: false,
+                manual: true,
+            }));
+        })
+        .unwrap();
+        VIEW.set(View::Group(folder));
+        nav::reload().unwrap();
+        PAGE.set(1);
+        refresh();
+        surface::present(hwnd).unwrap();
+        unsafe { GetWindowRect(GetDlgItem(hwnd, FIRST), &mut r) };
+        for (x, before) in [(r.left + 1, GRID_PAGE - 1), (r.right - 1, GRID_PAGE)] {
+            let target = hit(POINT {
+                x,
+                y: (r.top + r.bottom) / 2,
+            });
+            assert_eq!(
+                target.place,
+                Placement::InGroup(folder, Some(files[before].clone()))
+            );
+            let line = target.line.unwrap();
+            assert_eq!(line.right - line.left, 2);
+            assert!(line.bottom - line.top > 2);
+        }
+        VIEW.set(View::Home);
+        PAGE.set(0);
+        nav::rebuild();
         unsafe {
             DestroyWindow(hwnd);
         }

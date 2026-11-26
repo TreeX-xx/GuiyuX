@@ -116,7 +116,7 @@ pub fn run() -> io::Result<()> {
                     let root = GetAncestor(msg.hwnd, GA_ROOT);
                     if root == ISLAND.get() && !root.is_null() {
                         island::input_mode(msg.message);
-                        if menu::context_key(root, &msg) {
+                        if menu::context_key(root, &msg) || island::grid_key(&msg) {
                             continue;
                         }
                     }

@@ -12,6 +12,9 @@ use std::{
 use tauri::{Emitter, Manager};
 use tokio::sync::oneshot;
 
+#[cfg(windows)]
+mod window_close;
+
 #[derive(Default)]
 struct Bridge {
     next: AtomicU64,
@@ -40,7 +43,15 @@ fn present(window: tauri::WebviewWindow, title: String) -> Result<(), String> {
         .set_title(&title)
         .and_then(|_| window.show())
         .and_then(|_| window.set_focus())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    {
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as usize;
+        window
+            .run_on_main_thread(move || window_close::presented(hwnd as _))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 fn read_core(app: tauri::AppHandle) {
@@ -75,7 +86,7 @@ fn main() {
     if std::env::args().nth(1).as_deref() != Some("--core-stdio") {
         return;
     }
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Bridge::default())
         .setup(|app| {
@@ -84,6 +95,9 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![request, present])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("GuiyuX settings host failed");
+    #[cfg(windows)]
+    window_close::install();
+    app.run(|_, _| {});
 }

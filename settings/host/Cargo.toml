@@ -11,6 +11,9 @@ tauri = { version = "2", default-features = false, features = ["wry", "compressi
 tauri-plugin-dialog = "2"
 tokio = { version = "1", features = ["sync"] }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
 [build-dependencies]
 tauri-build = "2"
 

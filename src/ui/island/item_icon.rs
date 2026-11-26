@@ -14,7 +14,12 @@ impl Drop for Icon {
 }
 thread_local! {static ICONS:RefCell<VecDeque<(PathBuf,Option<Icon>)>>=const{RefCell::new(VecDeque::new())};}
 pub(super) fn draw(dc: HDC, path: &Path, x: i32, y: i32, side: i32) -> bool {
-    ICONS.with_borrow_mut(|cache| {
+    ICONS.with(|cache| {
+        // Shell icon handlers can pump window messages during SHGetFileInfoW.
+        // A nested paint uses the category glyph until the outer lookup finishes.
+        let Ok(mut cache) = cache.try_borrow_mut() else {
+            return false;
+        };
         let previous = cache
             .iter()
             .position(|(p, _)| p == path)
@@ -28,7 +33,7 @@ pub(super) fn draw(dc: HDC, path: &Path, x: i32, y: i32, side: i32) -> bool {
                     0,
                     &mut info,
                     size_of::<SHFILEINFOW>() as u32,
-                    SHGFI_ICON | SHGFI_SMALLICON,
+                    SHGFI_ICON | SHGFI_LARGEICON,
                 )
             };
             (
@@ -43,4 +48,16 @@ pub(super) fn draw(dc: HDC, path: &Path, x: i32, y: i32, side: i32) -> bool {
         cache.truncate(32);
         drawn
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repaint_during_a_shell_lookup_can_draw_a_fallback() {
+        ICONS.with_borrow_mut(|_| {
+            assert!(!draw(null_mut(), Path::new("nested.lnk"), 0, 0, 24));
+        });
+    }
 }

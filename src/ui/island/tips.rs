@@ -4,7 +4,11 @@ use windows_sys::Win32::UI::Controls::*;
 // v2 TOOLINFO, accepted by both classic and themed common controls.
 const TOOL_SIZE: u32 = std::mem::offset_of!(TTTOOLINFOW, lpReserved) as u32;
 
-thread_local! { static TIP: Cell<HWND> = const {Cell::new(null_mut())}; }
+thread_local! {
+    static TIP: Cell<HWND> = const {Cell::new(null_mut())};
+    // Comctl32 reads this pointer after TTN_GETDISPINFOW returns.
+    static TIP_TEXT: RefCell<Vec<u16>> = const { RefCell::new(Vec::new()) };
+}
 
 pub(super) fn install(owner: HWND) -> io::Result<()> {
     unsafe {
@@ -45,7 +49,13 @@ fn hint(anchor: HWND) -> String {
     if id == HEADER {
         return if nav::toolbar() { t.collapse } else { t.back }.into();
     }
-    nav::button_row(id).map_or_else(String::new, |r| r.title)
+    nav::button_row(id).map_or_else(String::new, |r| {
+        if r.detail.is_empty() {
+            r.title
+        } else {
+            format!("{}\n{}", r.full_name(), r.detail)
+        }
+    })
 }
 
 fn show(tip: HWND) -> bool {
@@ -62,26 +72,40 @@ fn show(tip: HWND) -> bool {
         if text.is_empty() {
             return false;
         }
+        let mut work = area(
+            0,
+            0,
+            GetSystemMetrics(SM_CXSCREEN),
+            GetSystemMetrics(SM_CYSCREEN),
+        );
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut work as *mut RECT).cast(), 0);
+        let flags = DT_NOPREFIX | DT_WORDBREAK | DT_EDITCONTROL;
+        let max_width = (work.right - work.left - 16).clamp(1, 520);
         let dc = GetDC(anchor);
         let font = interface_font(&text, POPUP_TEXT_SIZE, 1);
         let old = SelectObject(dc, font);
+        let content = wide(&text);
         let mut size = RECT::default();
         DrawTextW(
             dc,
-            wide(&text).as_ptr(),
+            content.as_ptr(),
             -1,
             &mut size,
-            DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX,
+            DT_CALCRECT | DT_NOPREFIX,
         );
+        let width = size.right.clamp(1, max_width);
+        size = area(0, 0, width, 0);
+        DrawTextW(dc, content.as_ptr(), -1, &mut size, DT_CALCRECT | flags);
         SelectObject(dc, old);
         DeleteObject(font);
         ReleaseDC(anchor, dc);
         let mut button = RECT::default();
         GetWindowRect(anchor, &mut button);
-        let w = size.right + 16;
-        let h = size.bottom + 8;
-        let x = (button.left + button.right - w) / 2;
-        let y = button.bottom + 6;
+        let w = width + 16;
+        let h = (size.bottom + 8).min((work.bottom - work.top).max(1));
+        let x = ((button.left + button.right - w) / 2)
+            .clamp(work.left, (work.right - w).max(work.left));
+        let y = (button.bottom + 6).clamp(work.top, (work.bottom - h).max(work.top));
         // TTN_SHOW supplies the visible native tooltip and its accessibility.
         // Commit its artwork and anchor position together before it is shown.
         let Ok(mut bitmap) = Bitmap::new(w, h) else {
@@ -89,7 +113,14 @@ fn show(tip: HWND) -> bool {
         };
         let rect = area(0, 0, w, h);
         fill(bitmap.dc, &rect, POPUP_BG);
-        interface_text(bitmap.dc, rect, &text, POPUP_TEXT_SIZE, INK, DT_CENTER);
+        let mut lines = area(8, 4, w - 8, h - 4);
+        let face = interface_font(&text, POPUP_TEXT_SIZE, 1);
+        let old = SelectObject(bitmap.dc, face);
+        SetBkMode(bitmap.dc, TRANSPARENT as i32);
+        SetTextColor(bitmap.dc, INK);
+        DrawTextW(bitmap.dc, content.as_ptr(), -1, &mut lines, flags);
+        SelectObject(bitmap.dc, old);
+        DeleteObject(face);
         round_edges(bitmap.pixels(), w, h, ROW_RADIUS);
         bitmap
             .present(tip, Some(POINT { x, y }), SIZE { cx: w, cy: h })
@@ -107,11 +138,10 @@ pub(super) fn notify(lp: LPARAM) -> Option<LRESULT> {
             TTN_GETDISPINFOW => {
                 let text = hint(hdr.idFrom as HWND);
                 let info = &mut *(lp as *mut NMTTDISPINFOW);
-                info.szText.fill(0);
-                for (slot, unit) in info.szText[..79].iter_mut().zip(text.encode_utf16()) {
-                    *slot = unit;
-                }
-                info.lpszText = info.szText.as_mut_ptr();
+                TIP_TEXT.with_borrow_mut(|buf| {
+                    *buf = wide(&text);
+                    info.lpszText = buf.as_mut_ptr();
+                });
                 Some(0)
             }
             TTN_SHOW => Some(isize::from(show(hdr.hwndFrom))),

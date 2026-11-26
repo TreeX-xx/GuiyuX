@@ -118,7 +118,7 @@ fn mark(dc: HDC, icon: Icon<'_>, cx: f32, cy: f32, size: f32, color: u32, tilt: 
             return;
         }
         tilt_about(dc, cx * SCALE as f32, cy * SCALE as f32, tilt);
-        let side = (size - 2.).min(20.);
+        let side = size.min(26.);
         if side >= 8.
             && let Some(path) = icon.file
             && item_icon::draw(dc, path, px(cx - side / 2.), px(cy - side / 2.), px(side))
@@ -292,7 +292,13 @@ pub(super) fn draw(
     });
 }
 
-pub(super) fn file_row(target: HDC, rect: RECT, hover: f32, focused: bool, pressed: bool) -> u32 {
+pub(super) fn tile_background(
+    target: HDC,
+    rect: RECT,
+    hover: f32,
+    focused: bool,
+    pressed: bool,
+) -> u32 {
     if hover <= 0.0 && !focused && !pressed {
         fill(target, &rect, BG);
         return BG;
