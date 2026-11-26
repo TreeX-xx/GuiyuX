@@ -6,18 +6,15 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{ERROR_CANCELLED, HWND, PROPERTYKEY},
+        Foundation::PROPERTYKEY,
         Storage::EnhancedStorage::{
             PKEY_AppUserModel_ID, PKEY_Link_TargetParsingPath, PKEY_Software_ProductName,
         },
         System::{
-            Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree},
+            Com::CoTaskMemFree,
             Ole::{OleInitialize, OleUninitialize},
         },
-        UI::Shell::{
-            FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, IShellItem2,
-            SHCreateItemFromParsingName, SIGDN_FILESYSPATH,
-        },
+        UI::Shell::{IShellItem2, SHCreateItemFromParsingName},
     },
     core::{PCWSTR, PWSTR},
 };
@@ -68,29 +65,5 @@ impl Properties {
     }
     pub fn product(&self) -> Option<String> {
         self.value(&PKEY_Software_ProductName)?.into_string().ok()
-    }
-}
-
-pub fn choose(
-    owner: windows_sys::Win32::Foundation::HWND,
-    folder: bool,
-) -> io::Result<Option<PathBuf>> {
-    let result = unsafe {
-        (|| -> windows::core::Result<PathBuf> {
-            let picker: IFileOpenDialog =
-                CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
-            let mut flags = picker.GetOptions()? | FOS_FORCEFILESYSTEM;
-            if folder {
-                flags |= FOS_PICKFOLDERS;
-            }
-            picker.SetOptions(flags)?;
-            picker.Show(Some(HWND(owner)))?;
-            Ok(owned_string(picker.GetResult()?.GetDisplayName(SIGDN_FILESYSPATH)?).into())
-        })()
-    };
-    match result {
-        Ok(path) => Ok(Some(path)),
-        Err(e) if e.code() == ERROR_CANCELLED.to_hresult() => Ok(None),
-        Err(e) => Err(io::Error::other(e)),
     }
 }

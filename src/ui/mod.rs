@@ -1,4 +1,3 @@
-mod dialog;
 mod glass;
 mod island;
 mod menu;
@@ -15,7 +14,6 @@ use windows_sys::Win32::{
 thread_local! {
     pub(crate) static APPEARANCE_STYLE: Cell<crate::config::Appearance> = Cell::default();
     static ISLAND: Cell<HWND> = const { Cell::new(null_mut()) };
-    static SETTINGS: Cell<HWND> = const { Cell::new(null_mut()) };
     static EXPANDED: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -107,7 +105,6 @@ fn register(class: &str, proc: WNDPROC) -> io::Result<()> {
 
 pub fn run() -> io::Result<()> {
     register("GuiyuX.Island", Some(island::procedure))?;
-    register("GuiyuX.Settings", Some(settings::procedure))?;
     island::open()?;
     unsafe {
         let mut msg = MSG::default();

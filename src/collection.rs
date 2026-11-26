@@ -79,9 +79,6 @@ pub enum RuleKind {
     Name,
     Application,
 }
-impl RuleKind {
-    pub const ALL: [Self; 3] = [Self::Extension, Self::Name, Self::Application];
-}
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Rule {
     pub kind: RuleKind,

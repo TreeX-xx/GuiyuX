@@ -1,17 +1,17 @@
 # GuiyuX
 
-Windows 桌面收纳工具，采用 Rust 和 Win32。运行后点击主屏顶边的 GuiyuX 胶囊展开单行分类栏，点击右端上箭头或岛外可收起。从资源管理器拖入文件或文件夹可保存引用，进入对应分类后选择条目可通过 Windows 打开。右键胶囊选择「设置…」，可管理收纳、快捷栏、整理规则、外观和界面语言。选择「退出」直接结束程序。收藏和设置会保留。
+Windows 桌面收纳工具。Rust 常驻进程用 Win32 绘制灵动岛，设置窗口按需使用 Tauri 2、WebView2 和 React/CSS。点击主屏顶边的胶囊展开分类栏，点击右端上箭头或岛外可收起。从资源管理器拖入文件或文件夹可保存引用，进入分类后可通过 Windows 打开条目。右键胶囊选择「设置…」可管理收纳、快捷栏、整理规则、外观和界面语言。选择「退出」结束程序。
 
 ## 编译与运行
 
-开发环境使用 Windows x64、Rust stable MSVC 工具链（本次验证版本为 1.99.1）、Visual Studio C++ Build Tools 和 Windows SDK。首次构建需要获取 Cargo.lock 锁定的依赖。
+开发环境使用 Windows x64、Rust stable MSVC 工具链、Visual Studio C++ Build Tools、Windows SDK，以及 Node.js 22.12+ 和 npm。构建脚本按两个 Cargo.lock 和前端的 package-lock.json 安装依赖，将网页资源嵌入设置程序。运行设置窗口需要 Microsoft Edge WebView2 Runtime。
 
 ```powershell
 .\build.ps1
 .\target\release\guiyux.exe
 ```
 
-调试构建使用 `.\build.ps1 -Profile Debug`，程序位于 `target\debug\guiyux.exe`。脚本把源码复制到本机临时目录运行 Cargo，兼容当前工作区的清单读取问题。依赖编译缓存位于 `%LOCALAPPDATA%\GuiyuX-build\cargo-target`。普通本地检出也可以直接执行 `cargo run --locked` 或 `cargo build --release --locked`。
+运行和分发时，将同次构建的 `guiyux.exe` 与 `guiyux-settings.exe` 放在同一目录，启动 `guiyux.exe`。打开设置时才会启动第二个程序，关闭窗口后它随 WebView2 一起退出。调试构建使用 `.\build.ps1 -Profile Debug`。若需要另存一份，使用 `-OutputDirectory <目录>`。脚本在本机临时目录编译，核心的 Cargo 缓存位于 `%LOCALAPPDATA%\GuiyuX-build\cargo-target`，设置宿主的缓存位于 `target\settings-cargo`。
 
 ## 模块维护
 
@@ -21,13 +21,15 @@ Windows 桌面收纳工具，采用 Rust 和 Win32。运行后点击主屏顶边
 | `src/config.rs` | 配置模型、默认值和同目录临时文件替换写入 |
 | `src/collection.rs` | 收藏归属、手动放置、快捷栏顺序及批量整理 |
 | `src/collection/classify.rs` | 应用标识、快捷方式目标、域名及文件类型的规则匹配 |
-| `src/language.rs` | 语言标识、系统语言解析和双语文案。新文案在同一个类型中补齐两种语言。 |
+| `src/language.rs` | 语言标识、系统语言解析和原生界面的双语文案 |
 | `src/ui/mod.rs` | Win32 消息循环、窗口注册、控件创建 |
 | `src/ui/island.rs` | 胶囊收展、文件投放、分类导航与分页浏览与系统打开动作 |
 | `src/ui/island/backdrop.rs` | 随岛面收展的实时桌面模糊与圆角裁切 |
 | `src/ui/menu.rs` | 胶囊右键菜单、键盘选取和退出入口 |
 | `src/ui/menu/frame.rs` | 菜单外沿和悬停高亮的透明圆角绘制 |
-| `src/ui/settings.rs` | 原生设置窗口、收纳开关、快捷入口管理、规则编辑与语言切换 |
+| `src/ui/settings.rs`、`src/ui/settings/actions.rs` | 启动或唤回设置窗口，通过匿名管道接收请求，在核心线程应用设置和写入配置 |
+| `settings/host/` | Tauri 2 设置宿主、窗口生命周期、命令桥接和系统文件选择器 |
+| `settings/src/` | React 设置界面、双语文案、CSS 及支持键盘操作的下拉框和滑杆 |
 | `src/ui/paint.rs` | 界面配色、离屏绘制、文字与圆角合成 |
 
 用户数据位于 `%LOCALAPPDATA%\GuiyuX\settings.json`。设置窗口按需创建，关闭时销毁。灵动岛静止时等待窗口消息。默认提供 11 个分类。快捷栏默认显示六个入口，顺序可在设置中调整。点「更多」会在同一灵动岛的快捷栏下方展开分类网格，再点一次可折回单行。图标使用无边框线形符号，鼠标移入时轻晃一次。

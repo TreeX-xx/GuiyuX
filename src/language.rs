@@ -21,8 +21,6 @@ pub struct Text {
     pub saved: &'static str,
     pub duplicate: &'static str,
     pub quit: &'static str,
-    pub language: &'static str,
-    pub system: &'static str,
     pub error: &'static str,
 }
 
@@ -48,8 +46,6 @@ const ZH: Text = Text {
     saved: "已收纳",
     duplicate: "已收藏",
     quit: "退出",
-    language: "界面语言",
-    system: "跟随系统",
     error: "无法读写设置或创建窗口",
 };
 const EN: Text = Text {
@@ -74,8 +70,6 @@ const EN: Text = Text {
     saved: "Saved",
     duplicate: "Already saved",
     quit: "Quit",
-    language: "Display language",
-    system: "Use system language",
     error: "Could not access settings or create a window",
 };
 

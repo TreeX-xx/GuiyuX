@@ -1,0 +1,18 @@
+[package]
+name = "guiyux-settings"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[dependencies]
+serde_json = "1"
+tauri = { version = "2", default-features = false, features = ["wry", "compression", "common-controls-v6", "custom-protocol"] }
+tauri-plugin-dialog = "2"
+tokio = { version = "1", features = ["sync"] }
+
+[build-dependencies]
+tauri-build = "2"
+
+[profile.release]
+strip = true

@@ -5,7 +5,6 @@ pub(super) const POPUP_BG: u32 = 0x2b2929;
 pub(super) const POPUP_TEXT_SIZE: i32 = 12;
 pub(super) const PANEL_RADIUS: i32 = 8;
 pub(super) const ROW_RADIUS: i32 = 4;
-pub(super) const ROW_BG: u32 = 0x302e2e;
 pub(super) const EDGE: u32 = 0x464343;
 pub(super) const HOVER_BG: u32 = 0x403d3d;
 pub(super) const FOCUS_BG: u32 = 0x565353;
@@ -179,15 +178,6 @@ fn font(size: i32, weight: i32, family: &str, quality: FONT_QUALITY) -> HFONT {
             wide(family).as_ptr(),
         )
     }
-}
-
-pub(super) fn label_font(size: i32) -> HFONT {
-    font(
-        size,
-        if size >= 16 { 600 } else { 400 },
-        "Segoe UI",
-        ANTIALIASED_QUALITY,
-    )
 }
 
 const SINGLE_LINE: u32 = DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX;

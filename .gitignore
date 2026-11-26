@@ -1,2 +1,6 @@
 /target/
+/settings/node_modules/
+/settings/dist/
+/settings/host/target/
+/settings/host/gen/
 /.claude/CLAUDE.local.md

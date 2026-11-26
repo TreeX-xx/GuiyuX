@@ -557,6 +557,10 @@ pub(super) unsafe extern "system" fn procedure(
         return 0;
     }
     match msg {
+        settings::DISPATCH => {
+            settings::dispatch(wp);
+            0
+        }
         WM_NOTIFYFORMAT => NFR_UNICODE as isize,
         WM_NOTIFY => {
             tips::notify(lp).unwrap_or_else(|| unsafe { DefWindowProcW(hwnd, msg, wp, lp) })
@@ -722,6 +726,7 @@ pub(super) unsafe extern "system" fn procedure(
             0
         }
         WM_DESTROY => {
+            settings::shutdown();
             ISLAND.set(null_mut());
             backdrop::reset();
             drag::unregister(hwnd);
