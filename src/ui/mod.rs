@@ -12,6 +12,7 @@ use windows_sys::Win32::{
 };
 
 thread_local! {
+    pub(crate) static MENU_APPEARANCE: Cell<crate::config::MenuAppearance> = Cell::default();
     static ISLAND: Cell<HWND> = const { Cell::new(null_mut()) };
     static SETTINGS: Cell<HWND> = const { Cell::new(null_mut()) };
     static EXPANDED: Cell<bool> = const { Cell::new(false) };

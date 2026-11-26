@@ -11,7 +11,13 @@ fn entries(s: &Settings) -> Vec<Shortcut> {
     }
     all
 }
-fn populate(hwnd: HWND, id: i32, values: &[String], selected: Option<usize>, combo: bool) {
+pub(super) fn populate(
+    hwnd: HWND,
+    id: i32,
+    values: &[String],
+    selected: Option<usize>,
+    combo: bool,
+) {
     let (reset, add, select) = if combo {
         (CB_RESETCONTENT, CB_ADDSTRING, CB_SETCURSEL)
     } else {

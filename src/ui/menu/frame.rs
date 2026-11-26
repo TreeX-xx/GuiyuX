@@ -17,6 +17,7 @@ struct Frame {
     added_layer: Cell<bool>,
     disabled: Cell<bool>,
     selected: Cell<u32>,
+    backdrop: std::cell::RefCell<Option<glass::Backdrop>>,
     last: Cell<Option<(i32, i32, u32)>>,
 }
 
@@ -37,6 +38,7 @@ fn register_popup(popup: &Popup, frames: &mut Vec<Rc<Frame>>) {
         added_layer: Cell::default(),
         disabled: Cell::default(),
         selected: Cell::default(),
+        backdrop: Default::default(),
         last: Cell::default(),
     }));
     for child in popup.items.iter().filter_map(|item| item.submenu.as_ref()) {
@@ -98,6 +100,7 @@ unsafe extern "system" fn before_show(code: i32, wp: WPARAM, lp: LPARAM) -> LRES
             {
                 frame.window.set(m.hwnd);
                 frame.last.set(None);
+                frame.backdrop.take();
                 let style = GetWindowLongW(m.hwnd, GWL_EXSTYLE);
                 frame.added_layer.set(style & WS_EX_LAYERED as i32 == 0);
                 SetWindowLongW(m.hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED as i32);
@@ -190,11 +193,26 @@ fn repaint(hwnd: HWND, frame: &Frame) {
             bounds.bottom - bounds.top,
             frame.selected.get(),
         );
-        if w <= 0 || h <= 0 || frame.last.replace(Some((w, h, id))) == Some((w, h, id)) {
+        let previous = frame.last.get();
+        if w <= 0 || h <= 0 || previous == Some((w, h, id)) {
             return;
         }
+        frame.last.set(Some((w, h, id)));
+        let style = MENU_APPEARANCE.get();
+        if previous.is_none() && style.frosted && style.transparency > 0 {
+            frame.backdrop.replace(glass::Backdrop::capture(bounds));
+        }
         if artwork(w, h, id, &frame.items)
-            .and_then(|bmp| bmp.present(hwnd, None, SIZE { cx: w, cy: h }))
+            .and_then(|mut bmp| {
+                glass::blend(
+                    &mut bmp,
+                    w,
+                    h,
+                    style.transparency,
+                    frame.backdrop.borrow().as_ref(),
+                );
+                bmp.present(hwnd, None, SIZE { cx: w, cy: h })
+            })
             .is_err()
         {
             // Restore ordinary native tracking and drawing if composition failed.

@@ -5,6 +5,7 @@ use windows_sys::Win32::UI::Controls::{DRAWITEMSTRUCT, MEASUREITEMSTRUCT, ODS_SE
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_APPS, VK_F10, VK_SHIFT};
 
 mod frame;
+mod glass;
 
 const OPEN_SETTINGS: u32 = 4001;
 const QUIT: u32 = 4002;

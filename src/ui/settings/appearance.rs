@@ -51,6 +51,10 @@ pub(super) fn panel(hwnd: HWND, dc: HDC) {
     let page = PAGE.get();
     text(dc, area(X, 13, WIDTH - 22, 55), title(page), 20, ink);
     let hint = match page {
+        APPEARANCE => tr(
+            "调整右键菜单背景，下次打开菜单时生效。",
+            "Changes apply the next time you open a context menu.",
+        ),
         BAR => tr(
             "前六个入口显示在胶囊上，点击「更多」可展开其余入口。",
             "The first six shortcuts appear on the bar. Select More to expand it.",
@@ -73,6 +77,22 @@ pub(super) fn panel(hwnd: HWND, dc: HDC) {
         text(dc, area(X, 51, WIDTH - 22, 79), hint, 13, muted);
     }
     match page {
+        APPEARANCE => {
+            text(
+                dc,
+                area(X, 82, X + 230, 110),
+                tr("背景效果", "Background effect"),
+                13,
+                ink,
+            );
+            text(
+                dc,
+                area(X + 252, 82, X + W, 110),
+                tr("背景透明度", "Background transparency"),
+                13,
+                ink,
+            );
+        }
         GENERAL => {
             let total = DATA.with_borrow(|s| s.items.len());
             let label = if crate::language().is_chinese() {
@@ -157,7 +177,7 @@ fn button(hwnd: HWND, id: i32, dc: HDC) {
     };
     let target = dc;
     let dc = bmp.dc;
-    let nav = (GENERAL..=LANG).contains(&id);
+    let nav = (GENERAL..=APPEARANCE).contains(&id);
     let checked = unsafe { SendMessageW(hwnd, BM_GETCHECK, 0, 0) != 0 };
     let page = if PAGE.get() == PREVIEW {
         RULES
@@ -228,7 +248,17 @@ fn button(hwnd: HWND, id: i32, dc: HDC) {
                 ink,
             );
         } else {
-            glyph(dc, area(9, 0, 34, h), "\u{e774}", 14, ink);
+            glyph(
+                dc,
+                area(9, 0, 34, h),
+                if id == APPEARANCE {
+                    "\u{e790}"
+                } else {
+                    "\u{e774}"
+                },
+                14,
+                ink,
+            );
         }
         text(dc, area(41, 0, w - 5, h), &name, 13, ink);
     } else if id == TOGGLE {

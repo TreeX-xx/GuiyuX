@@ -25,7 +25,10 @@ const GENERAL: i32 = 410;
 const BAR: i32 = 411;
 const RULES: i32 = 412;
 const LANG: i32 = 413;
-const PREVIEW: i32 = 414;
+const APPEARANCE: i32 = 414;
+const PREVIEW: i32 = 415;
+const MATERIAL: i32 = 483;
+const TRANSPARENCY: i32 = 484;
 const TOGGLE: i32 = 420;
 const SORT: i32 = 421;
 const VIEW_OTHER: i32 = 422;
@@ -104,6 +107,7 @@ fn say(hwnd: HWND, text: String) {
 fn page_of(id: i32) -> i32 {
     match id {
         201..=203 => LANG,
+        MATERIAL | TRANSPARENCY => APPEARANCE,
         420..=449 => GENERAL,
         450..=460 => BAR,
         470..=480 => RULES,
@@ -113,6 +117,7 @@ fn page_of(id: i32) -> i32 {
 }
 fn title(id: i32) -> &'static str {
     match id {
+        APPEARANCE => tr("外观", "Appearance"),
         GENERAL => tr("收纳", "Collection"),
         BAR => tr("快捷栏", "Shortcuts"),
         RULES => tr("整理规则", "Sorting rules"),
@@ -202,7 +207,10 @@ fn create(hwnd: HWND) -> io::Result<()> {
         Ok(())
     };
     let button = |id, rect| add("BUTTON", BS_PUSHBUTTON as u32, id, rect);
-    for (i, id) in [GENERAL, BAR, RULES, LANG].into_iter().enumerate() {
+    for (i, id) in [GENERAL, BAR, RULES, APPEARANCE, LANG]
+        .into_iter()
+        .enumerate()
+    {
         button(id, [10, 76 + i as i32 * 43, SIDE - 20, 38])?;
     }
     add("BUTTON", BS_CHECKBOX as u32, TOGGLE, [X, 66, W, 74])?;
@@ -254,6 +262,8 @@ fn create(hwnd: HWND) -> io::Result<()> {
         button(id, [X + x, 212, w, 32])?;
     }
     let combo = |id, rect| add("COMBOBOX", CBS_DROPDOWNLIST as u32 | WS_VSCROLL, id, rect);
+    combo(MATERIAL, [X, 115, 230, 136])?;
+    combo(TRANSPARENCY, [X + 252, 115, 200, 176])?;
     combo(KIND, [X, 280, 146, 175])?;
     add(
         "EDIT",
@@ -287,10 +297,10 @@ fn layout(hwnd: HWND) {
     let page = PAGE.get();
     let lang = crate::language();
     caption(hwnd, &format!("GuiyuX · {}", lang.text().settings));
-    for id in (GENERAL..=LANG)
+    for id in (GENERAL..=APPEARANCE)
         .chain(TOGGLE..=TILE + 10)
         .chain(BAR_LIST..=FILE)
-        .chain(RULE_LIST..=BACK)
+        .chain(RULE_LIST..=TRANSPARENCY)
         .chain(201..=203)
     {
         let h = child(hwnd, id);
@@ -318,6 +328,27 @@ fn layout(hwnd: HWND) {
                 BM_SETCHECK,
                 usize::from(DATA.with_borrow(|s| s.auto_sort)),
                 0,
+            );
+        }
+        APPEARANCE => {
+            let style = DATA.with_borrow(|s| s.menu);
+            editor::populate(
+                hwnd,
+                MATERIAL,
+                &[
+                    tr("毛玻璃", "Frosted glass").into(),
+                    tr("透明", "Clear").into(),
+                ],
+                Some(usize::from(!style.frosted)),
+                true,
+            );
+            let levels = [0, 15, 30, 45, 60].map(|n| format!("{n}%"));
+            editor::populate(
+                hwnd,
+                TRANSPARENCY,
+                &levels,
+                Some(usize::from(style.transparency / 15)),
+                true,
             );
         }
         BAR => editor::bar_list(hwnd),
@@ -392,7 +423,21 @@ fn command(hwnd: HWND, id: i32, event: u32) -> io::Result<()> {
                 }
             }
         }
-        (GENERAL..=LANG, 0) => switch(hwnd, id),
+        (GENERAL..=APPEARANCE, 0) => switch(hwnd, id),
+        (MATERIAL | TRANSPARENCY, e) if e == CBN_SELCHANGE => {
+            if let Some(index) = choice(hwnd, id, CB_GETCURSEL) {
+                let style = collection::update(|s| {
+                    if id == MATERIAL {
+                        s.menu.frosted = index == 0;
+                    } else {
+                        s.menu.transparency = (index.min(4) * 15) as u8;
+                    }
+                    s.menu
+                })?;
+                MENU_APPEARANCE.set(style);
+                DATA.with_borrow_mut(|s| s.menu = style);
+            }
+        }
         (TOGGLE, 0) => {
             collection::update(|s| s.auto_sort = !s.auto_sort)?;
             saved(hwnd)?;

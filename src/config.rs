@@ -8,10 +8,27 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct MenuAppearance {
+    pub frosted: bool,
+    pub transparency: u8,
+}
+
+impl Default for MenuAppearance {
+    fn default() -> Self {
+        Self {
+            frosted: true,
+            transparency: 30,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct Settings {
     pub language: Language,
+    pub menu: MenuAppearance,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     inbox: Vec<PathBuf>,
     pub auto_sort: bool,
@@ -27,6 +44,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             language: Language::System,
+            menu: MenuAppearance::default(),
             inbox: vec![],
             items: vec![],
             auto_sort: true,
@@ -48,6 +66,7 @@ pub fn load(path: &Path) -> io::Result<Settings> {
     match fs::read(path) {
         Ok(bytes) => {
             let mut data: Settings = serde_json::from_slice(&bytes)?;
+            data.menu.transparency = (data.menu.transparency.min(60) + 7) / 15 * 15;
             let migrate_bar = data.bar_revision == 0;
             if migrate_bar {
                 let defaults = collection::default_bar();
@@ -85,6 +104,21 @@ pub fn save(path: &Path, settings: &Settings) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn old_settings_get_glass_defaults_and_a_selected_style_survives_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{}").unwrap();
+        let mut settings = load(&path).unwrap();
+        assert_eq!(settings.menu, MenuAppearance::default());
+        settings.menu = MenuAppearance {
+            frosted: false,
+            transparency: 45,
+        };
+        save(&path, &settings).unwrap();
+        assert_eq!(load(&path).unwrap().menu, settings.menu);
+    }
+
     #[test]
     fn upgrade_only_extends_the_old_default_and_respects_later_unpins() {
         let dir = tempfile::tempdir().unwrap();

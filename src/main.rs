@@ -41,7 +41,9 @@ fn run() -> std::io::Result<()> {
         Err(TryLockError::Error(error)) => return Err(error),
     }
     let _apartment = shell::Apartment::open()?;
-    LANGUAGE.set(config::load(&path)?.language);
+    let settings = config::load(&path)?;
+    LANGUAGE.set(settings.language);
+    ui::MENU_APPEARANCE.set(settings.menu);
     ui::run()
 }
 
