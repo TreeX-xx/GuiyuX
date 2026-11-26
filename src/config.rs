@@ -68,7 +68,7 @@ pub fn load(path: &Path) -> io::Result<Settings> {
     match fs::read(path) {
         Ok(bytes) => {
             let mut data: Settings = serde_json::from_slice(&bytes)?;
-            data.appearance.transparency = (data.appearance.transparency.min(60) + 7) / 15 * 15;
+            data.appearance.transparency = data.appearance.transparency.min(100);
             let migrate_bar = data.bar_revision == 0;
             if migrate_bar {
                 let defaults = collection::default_bar();
@@ -124,6 +124,14 @@ mod tests {
         );
         save(&path, &settings).unwrap();
         assert_eq!(load(&path).unwrap().appearance, settings.appearance);
+        for percent in [0, 1, 37, 83, 99, 100, 255] {
+            settings.appearance.transparency = percent;
+            save(&path, &settings).unwrap();
+            assert_eq!(
+                load(&path).unwrap().appearance.transparency,
+                percent.min(100)
+            );
+        }
     }
 
     #[test]

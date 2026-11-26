@@ -353,7 +353,7 @@ pub(super) fn refresh() {
     }
 }
 
-fn draw(d: &DRAWITEMSTRUCT) {
+fn draw(d: &DRAWITEMSTRUCT, ink: HDC) {
     let id = d.CtlID as i32;
     let r = d.rcItem;
     let dc = d.hDC;
@@ -385,7 +385,7 @@ fn draw(d: &DRAWITEMSTRUCT) {
         };
         fill(dc, &r, shade);
         if let Some(message) = FEEDBACK.get() {
-            label(dc, r, message, 16, INK, DT_CENTER);
+            island_text(ink, r, message, 16, INK, DT_CENTER);
         }
         return;
     }
@@ -426,22 +426,21 @@ fn draw(d: &DRAWITEMSTRUCT) {
             art::emblem(dc, icon_rect, row.symbol, shade, SILVER);
         }
         let board = VIEW.get() == View::More;
-        let paint_text = if board { interface_text } else { label };
         let left = if board { 45 } else { 52 };
-        paint_text(
-            dc,
+        island_text(
+            ink,
             area(left, 3, r.right - 8, 26),
             &row.title,
             if board { 14 } else { 16 },
             INK,
             DT_LEFT,
         );
-        paint_text(
-            dc,
+        island_text(
+            ink,
             area(left, 24, r.right - 8, 43),
             &row.detail,
-            if board { 12 } else { 13 },
-            MUTED,
+            13,
+            0xd8d4d2,
             DT_LEFT,
         );
     }
@@ -508,7 +507,7 @@ pub(super) fn appearance_changed() {
     }
 }
 
-fn paint_background(dc: HDC, mut r: RECT) {
+fn paint_background(dc: HDC, ink: HDC, mut r: RECT) {
     fill(dc, &r, BG);
     if EXPANDED.get() && VIEW.get() == View::More {
         fill(dc, &area(12, 49, (r.right - 12).max(13), 50), EDGE);
@@ -516,21 +515,28 @@ fn paint_background(dc: HDC, mut r: RECT) {
     if EXPANDED.get() && VIEW.get() == View::Home {
         if let Some(message) = FEEDBACK.get() {
             r.top = 50;
-            label(dc, r, message, 14, SILVER, DT_CENTER);
+            island_text(ink, r, message, 14, SILVER, DT_CENTER);
         }
     } else if EXPANDED.get() {
         let n = nav::len();
         if n == 0 {
             r.left = 40;
-            label(dc, r, crate::language().text().empty, 15, MUTED, DT_CENTER);
+            island_text(
+                ink,
+                r,
+                crate::language().text().empty,
+                15,
+                SILVER,
+                DT_CENTER,
+            );
         }
         if let Some(message) = FEEDBACK.get() {
             r.top = r.bottom - 40;
-            label(dc, r, message, 14, SILVER, DT_CENTER);
+            island_text(ink, r, message, 14, SILVER, DT_CENTER);
         } else if n > nav::page_size() {
             r.top = r.bottom - 40;
-            label(
-                dc,
+            island_text(
+                ink,
                 r,
                 &format!("{} / {}", PAGE.get() + 1, n.div_ceil(nav::page_size())),
                 13,
@@ -565,7 +571,7 @@ pub(super) unsafe extern "system" fn procedure(
             if menu::draw(d) {
                 return 1;
             }
-            draw(d);
+            draw(d, d.hDC);
             if unsafe { GetObjectType(d.hDC) } != OBJ_MEMDC as u32 {
                 schedule_frame(hwnd);
             }
@@ -744,15 +750,15 @@ mod tests {
             ..Default::default()
         };
         KEYBOARD.set(false);
-        draw(&d);
+        draw(&d, d.hDC);
         let idle = bitmap.pixels().to_vec();
         assert_eq!(idle[20 * 32 + 4], idle[0]);
         assert_eq!(idle[12 * 32 + 8], idle[0]); // no enclosing tile under the chevron
         KEYBOARD.set(true);
-        draw(&d);
+        draw(&d, d.hDC);
         assert_ne!(bitmap.pixels()[20 * 32 + 4], idle[0]);
         KEYBOARD.set(false);
-        draw(&d);
+        draw(&d, d.hDC);
         assert_eq!(bitmap.pixels(), idle.as_slice());
     }
 }

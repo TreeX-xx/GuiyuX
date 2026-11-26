@@ -108,7 +108,10 @@ pub(super) fn blend(
             .max()
             .unwrap();
         // Nearby fills transmit equally so hover remains distinct over any backdrop.
-        let transmission = a * u32::from(percent) * (64 - contrast.clamp(32, 64)) / 3200;
+        // Gradually remove the original matte at antialiased symbol edges.
+        // A short cutoff leaves an opaque dark fringe on a light backdrop.
+        let ink = contrast.saturating_sub(32).min(192);
+        let transmission = a * u32::from(percent) * (192 - ink) / 19200;
         if transmission == 0 {
             continue;
         }
@@ -116,7 +119,9 @@ pub(super) fn blend(
         let alpha = if background.is_some() {
             a
         } else {
-            a - transmission
+            // A layered window passes clicks through zero-alpha pixels.
+            // Keep its interior interactive even at 100% transparency.
+            (a - transmission).max(1)
         };
         let channel = |index: usize, shift: u32| {
             let light = (background.unwrap_or(0) >> shift) & 255;

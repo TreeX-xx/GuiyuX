@@ -82,19 +82,18 @@ fn show(tip: HWND) -> bool {
         let h = size.bottom + 8;
         let x = (button.left + button.right - w) / 2;
         let y = button.bottom + 6;
-        let bounds = RECT {
-            left: x,
-            top: y,
-            right: x + w,
-            bottom: y + h,
-        };
         // TTN_SHOW supplies the visible native tooltip and its accessibility.
         // Commit its artwork and anchor position together before it is shown.
-        surface::layer(tip, bounds, ROW_RADIUS, 255, 0, |dc, rect| {
-            fill(dc, &rect, POPUP_BG);
-            interface_text(dc, rect, &text, POPUP_TEXT_SIZE, INK, DT_CENTER);
-        })
-        .is_ok()
+        let Ok(mut bitmap) = Bitmap::new(w, h) else {
+            return false;
+        };
+        let rect = area(0, 0, w, h);
+        fill(bitmap.dc, &rect, POPUP_BG);
+        interface_text(bitmap.dc, rect, &text, POPUP_TEXT_SIZE, INK, DT_CENTER);
+        round_edges(bitmap.pixels(), w, h, ROW_RADIUS);
+        bitmap
+            .present(tip, Some(POINT { x, y }), SIZE { cx: w, cy: h })
+            .is_ok()
     }
 }
 

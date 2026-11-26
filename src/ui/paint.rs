@@ -121,6 +121,13 @@ impl Drop for Bitmap {
 }
 
 pub(super) fn round_edges(pixels: &mut [u32], w: i32, h: i32, radius: i32) {
+    for pixel in pixels.iter_mut() {
+        *pixel |= 0xff000000;
+    }
+    clip_edges(pixels, w, h, radius);
+}
+
+pub(super) fn clip_edges(pixels: &mut [u32], w: i32, h: i32, radius: i32) {
     // Sixteenths preserve a true semicircle even at odd intermediate heights.
     let radius = (radius * 16).min(w * 8).min(h * 8);
     for (i, pixel) in pixels.iter_mut().enumerate() {
@@ -129,7 +136,6 @@ pub(super) fn round_edges(pixels: &mut [u32], w: i32, h: i32, radius: i32) {
         let dx = radius - 16 * x.min(w - 1 - x);
         let dy = radius - 16 * y.min(h - 1 - y);
         if dx <= 0 || dy <= 0 {
-            *pixel |= 0xff000000;
             continue;
         }
         // Sample a pixel's area at the curve; mirror the same coverage at all four corners.
@@ -142,7 +148,7 @@ pub(super) fn round_edges(pixels: &mut [u32], w: i32, h: i32, radius: i32) {
             }
         }
         let channel = |shift: u32| (((*pixel >> shift) & 255) * hits + 32) / 64;
-        *pixel = ((255 * hits + 32) / 64) << 24 | channel(16) << 16 | channel(8) << 8 | channel(0);
+        *pixel = channel(24) << 24 | channel(16) << 16 | channel(8) << 8 | channel(0);
     }
 }
 
@@ -154,7 +160,7 @@ pub(super) fn fill(dc: HDC, rect: &RECT, color: u32) {
     }
 }
 
-fn font(size: i32, weight: i32, family: &str) -> HFONT {
+fn font(size: i32, weight: i32, family: &str, quality: FONT_QUALITY) -> HFONT {
     unsafe {
         CreateFontW(
             -size,
@@ -168,7 +174,7 @@ fn font(size: i32, weight: i32, family: &str) -> HFONT {
             DEFAULT_CHARSET as u32,
             0,
             0,
-            ANTIALIASED_QUALITY as u32,
+            quality as u32,
             0,
             wide(family).as_ptr(),
         )
@@ -176,7 +182,12 @@ fn font(size: i32, weight: i32, family: &str) -> HFONT {
 }
 
 pub(super) fn label_font(size: i32) -> HFONT {
-    font(size, if size >= 16 { 600 } else { 400 }, "Segoe UI")
+    font(
+        size,
+        if size >= 16 { 600 } else { 400 },
+        "Segoe UI",
+        ANTIALIASED_QUALITY,
+    )
 }
 
 const SINGLE_LINE: u32 = DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX;
@@ -190,17 +201,6 @@ fn draw_text(dc: HDC, mut rect: RECT, value: &str, face: HFONT, color: u32, flag
         SelectObject(dc, old);
         DeleteObject(face);
     }
-}
-
-pub(super) fn label(dc: HDC, rect: RECT, value: &str, size: i32, color: u32, align: u32) {
-    draw_text(
-        dc,
-        rect,
-        value,
-        label_font(size),
-        color,
-        SINGLE_LINE | align,
-    );
 }
 
 // Rasterize a grayscale mask so small CJK strokes and symbols keep their edges
@@ -251,6 +251,10 @@ fn smooth_text(
 }
 
 pub(super) fn interface_font(value: &str, size: i32, scale: i32) -> HFONT {
+    interface_face(value, size, scale, ANTIALIASED_QUALITY)
+}
+
+fn interface_face(value: &str, size: i32, scale: i32, quality: FONT_QUALITY) -> HFONT {
     let family = if value
         .chars()
         .any(|ch| ('\u{3400}'..='\u{9fff}').contains(&ch))
@@ -259,7 +263,38 @@ pub(super) fn interface_font(value: &str, size: i32, scale: i32) -> HFONT {
     } else {
         "Segoe UI"
     };
-    font(size * scale, if size >= 18 { 600 } else { 400 }, family)
+    font(
+        size * scale,
+        if size >= 18 { 600 } else { 400 },
+        family,
+        quality,
+    )
+}
+
+// Rasterize island captions at their final pixel size. The grayscale mask
+// carries the glyph's actual coverage, including its antialiased edges.
+pub(super) fn island_text(dc: HDC, rect: RECT, value: &str, size: i32, color: u32, align: u32) {
+    let (w, h) = (rect.right - rect.left, rect.bottom - rect.top);
+    let Ok(mut mask) = Bitmap::new(w, h) else {
+        return;
+    };
+    mask.pixels().fill(0);
+    draw_text(
+        mask.dc,
+        area(0, 0, w, h),
+        value,
+        interface_face(value, size, 1, CLEARTYPE_NATURAL_QUALITY as FONT_QUALITY),
+        0xffffff,
+        SINGLE_LINE | align,
+    );
+    for pixel in mask.pixels() {
+        // Reduce subpixel samples to one coverage value before compositing on glass.
+        let [b, g, r, _] = pixel.to_le_bytes();
+        let a = (u32::from(r) + 2 * u32::from(g) + u32::from(b) + 2) / 4;
+        let channel = |shift: u32| (((color >> shift) & 255) * a + 127) / 255;
+        *pixel = a << 24 | channel(0) << 16 | channel(8) << 8 | channel(16);
+    }
+    composite(dc, rect, &mask);
 }
 
 pub(super) fn interface_text(dc: HDC, rect: RECT, value: &str, size: i32, color: u32, align: u32) {
@@ -270,7 +305,7 @@ pub(super) fn interface_text(dc: HDC, rect: RECT, value: &str, size: i32, color:
 
 pub(super) fn glyph(dc: HDC, rect: RECT, value: &str, size: i32, color: u32) {
     smooth_text(dc, rect, value, color, SINGLE_LINE | DT_CENTER, |scale| {
-        font(size * scale, 400, "Segoe MDL2 Assets")
+        font(size * scale, 400, "Segoe MDL2 Assets", ANTIALIASED_QUALITY)
     });
 }
 

@@ -6,13 +6,18 @@ use crate::{
 };
 use std::cell::RefCell;
 use windows_sys::Win32::UI::{
-    Controls::{DRAWITEMSTRUCT, MEASUREITEMSTRUCT},
+    Controls::{
+        DRAWITEMSTRUCT, EM_SETLIMITTEXT, MEASUREITEMSTRUCT, NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR,
+        ODT_COMBOBOX, TBM_SETPAGESIZE, TBM_SETRANGE, TBS_NOTICKS,
+    },
     Input::KeyboardAndMouse::{EnableWindow, SetFocus},
     Shell::SetWindowSubclass,
 };
 
 mod appearance;
+mod dropdown;
 mod editor;
+mod transparency;
 
 const WIDTH: i32 = 704;
 const HEIGHT: i32 = 470;
@@ -29,6 +34,7 @@ const APPEARANCE: i32 = 414;
 const PREVIEW: i32 = 415;
 const MATERIAL: i32 = 483;
 const TRANSPARENCY: i32 = 484;
+const SLIDER: i32 = 485;
 const TOGGLE: i32 = 420;
 const SORT: i32 = 421;
 const VIEW_OTHER: i32 = 422;
@@ -107,7 +113,7 @@ fn say(hwnd: HWND, text: String) {
 fn page_of(id: i32) -> i32 {
     match id {
         201..=203 => LANG,
-        MATERIAL | TRANSPARENCY => APPEARANCE,
+        MATERIAL | TRANSPARENCY | SLIDER => APPEARANCE,
         420..=449 => GENERAL,
         450..=460 => BAR,
         470..=480 => RULES,
@@ -118,6 +124,7 @@ fn page_of(id: i32) -> i32 {
 fn title(id: i32) -> &'static str {
     match id {
         APPEARANCE => tr("外观", "Appearance"),
+        SLIDER => tr("背景透明度", "Background transparency"),
         GENERAL => tr("收纳", "Collection"),
         BAR => tr("快捷栏", "Shortcuts"),
         RULES => tr("整理规则", "Sorting rules"),
@@ -191,8 +198,11 @@ fn create(hwnd: HWND) -> io::Result<()> {
             {
                 return Err(io::Error::last_os_error());
             }
-            if class == "COMBOBOX"
-                && SetWindowSubclass(h, Some(appearance::combo_proc), id as usize, 0) == 0
+            if class == "COMBOBOX" {
+                dropdown::install(h)?;
+            }
+            if id == TRANSPARENCY
+                && SetWindowSubclass(h, Some(transparency::edit_proc), id as usize, 0) == 0
             {
                 return Err(io::Error::last_os_error());
             }
@@ -261,9 +271,25 @@ fn create(hwnd: HWND) -> io::Result<()> {
     ] {
         button(id, [X + x, 212, w, 32])?;
     }
-    let combo = |id, rect| add("COMBOBOX", CBS_DROPDOWNLIST as u32 | WS_VSCROLL, id, rect);
-    combo(MATERIAL, [X, 115, 230, 136])?;
-    combo(TRANSPARENCY, [X + 252, 115, 200, 176])?;
+    let combo = |id, rect| {
+        add(
+            "COMBOBOX",
+            (CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS) as u32 | WS_VSCROLL,
+            id,
+            rect,
+        )
+    };
+    combo(MATERIAL, [X, 114, 244, 150])?;
+    add("msctls_trackbar32", TBS_NOTICKS, SLIDER, [X, 211, 382, 34])?;
+    send(hwnd, SLIDER, TBM_SETRANGE, 1, 100 << 16);
+    send(hwnd, SLIDER, TBM_SETPAGESIZE, 0, 10);
+    add(
+        "EDIT",
+        (ES_NUMBER | ES_RIGHT | ES_AUTOHSCROLL) as u32,
+        TRANSPARENCY,
+        [X + 411, 219, 42, 19],
+    )?;
+    send(hwnd, TRANSPARENCY, EM_SETLIMITTEXT, 3, 0);
     combo(KIND, [X, 280, 146, 175])?;
     add(
         "EDIT",
@@ -300,7 +326,7 @@ fn layout(hwnd: HWND) {
     for id in (GENERAL..=APPEARANCE)
         .chain(TOGGLE..=TILE + 10)
         .chain(BAR_LIST..=FILE)
-        .chain(RULE_LIST..=TRANSPARENCY)
+        .chain(RULE_LIST..=SLIDER)
         .chain(201..=203)
     {
         let h = child(hwnd, id);
@@ -342,14 +368,7 @@ fn layout(hwnd: HWND) {
                 Some(usize::from(!style.frosted)),
                 true,
             );
-            let levels = [0, 15, 30, 45, 60].map(|n| format!("{n}%"));
-            editor::populate(
-                hwnd,
-                TRANSPARENCY,
-                &levels,
-                Some(usize::from(style.transparency / 15)),
-                true,
-            );
+            transparency::display(hwnd, style.transparency);
         }
         BAR => editor::bar_list(hwnd),
         RULES => editor::rule_list(hwnd),
@@ -419,24 +438,29 @@ fn command(hwnd: HWND, id: i32, event: u32) -> io::Result<()> {
                 editor::restore_draft(hwnd);
             } else {
                 unsafe {
-                    DestroyWindow(hwnd);
+                    PostMessageW(hwnd, WM_CLOSE, 0, 0);
                 }
             }
         }
         (GENERAL..=APPEARANCE, 0) => switch(hwnd, id),
-        (MATERIAL | TRANSPARENCY, e) if e == CBN_SELCHANGE => {
-            if let Some(index) = choice(hwnd, id, CB_GETCURSEL) {
-                let style = collection::update(|s| {
-                    if id == MATERIAL {
-                        s.appearance.frosted = index == 0;
-                    } else {
-                        s.appearance.transparency = (index.min(4) * 15) as u8;
-                    }
-                    s.appearance
-                })?;
-                APPEARANCE_STYLE.set(style);
-                DATA.with_borrow_mut(|s| s.appearance = style);
-                island::appearance_changed();
+        (MATERIAL, CBN_SELENDOK | CBN_SELCHANGE)
+            if event == CBN_SELENDOK || dropdown::initial(child(hwnd, MATERIAL)).is_none() =>
+        {
+            if let Some(index) = choice(hwnd, MATERIAL, CB_GETCURSEL) {
+                let mut style = APPEARANCE_STYLE.get();
+                style.frosted = index == 0;
+                transparency::apply(style, true)?;
+            }
+        }
+        (TRANSPARENCY, EN_CHANGE | EN_KILLFOCUS | EN_SETFOCUS) if PAGE.get() == APPEARANCE => {
+            transparency::edit(hwnd, event)?;
+        }
+        (MATERIAL | KIND | DEST, CBN_DROPDOWN | CBN_CLOSEUP) => {
+            dropdown::notify(child(hwnd, id), event == CBN_DROPDOWN);
+        }
+        (MATERIAL | KIND | DEST, CBN_SELENDCANCEL) => {
+            if let Some(index) = dropdown::initial(child(hwnd, id)) {
+                send(hwnd, id, CB_SETCURSEL, index as usize, 0);
             }
         }
         (TOGGLE, 0) => {
@@ -491,12 +515,31 @@ pub(super) unsafe extern "system" fn procedure(
             }
             WM_MEASUREITEM => {
                 let d = &mut *(lp as *mut MEASUREITEMSTRUCT);
-                d.itemHeight = 28;
+                d.itemHeight = if d.CtlType == ODT_COMBOBOX { 32 } else { 28 };
                 1
             }
             WM_DRAWITEM => {
-                appearance::list_row(&*(lp as *const DRAWITEMSTRUCT));
+                let item = &*(lp as *const DRAWITEMSTRUCT);
+                if item.CtlType == ODT_COMBOBOX {
+                    dropdown::row(item);
+                } else {
+                    appearance::list_row(item);
+                }
                 1
+            }
+            WM_HSCROLL if lp != 0 && lp as HWND == child(hwnd, SLIDER) => {
+                if let Err(error) = transparency::scroll(hwnd, (wp & 0xffff) as u32) {
+                    report(&error);
+                }
+                0
+            }
+            WM_NOTIFY
+                if lp != 0
+                    && (*(lp as *const NMHDR)).idFrom == SLIDER as usize
+                    && (*(lp as *const NMHDR)).code == NM_CUSTOMDRAW
+                    && !high_contrast() =>
+            {
+                transparency::draw_slider(&*(lp as *const NMCUSTOMDRAW))
             }
             WM_CTLCOLORLISTBOX | WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC if !high_contrast() => {
                 SetTextColor(wp as HDC, INK);
@@ -508,6 +551,12 @@ pub(super) unsafe extern "system" fn procedure(
                     report(&e);
                 }
                 0
+            }
+            WM_CLOSE if PAGE.get() == APPEARANCE => {
+                if let Err(error) = transparency::edit(hwnd, EN_KILLFOCUS) {
+                    report(&error);
+                }
+                DefWindowProcW(hwnd, msg, wp, lp)
             }
             SYNC => {
                 if let Ok(s) = collection::current() {

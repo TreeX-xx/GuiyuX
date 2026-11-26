@@ -87,10 +87,43 @@ pub(super) fn panel(hwnd: HWND, dc: HDC) {
             );
             text(
                 dc,
-                area(X + 252, 82, X + W, 110),
+                area(X, 174, X + W, 203),
                 tr("背景透明度", "Background transparency"),
                 13,
                 ink,
+            );
+            let frame = area(X + 396, 211, X + W, 245);
+            let focused = unsafe { GetFocus() } == child(hwnd, TRANSPARENCY);
+            rounded_fill(
+                dc,
+                frame,
+                ROW_RADIUS,
+                if focused || high_contrast() {
+                    ink
+                } else {
+                    EDGE
+                },
+            );
+            rounded_fill(
+                dc,
+                area(
+                    frame.left + 1,
+                    frame.top + 1,
+                    frame.right - 1,
+                    frame.bottom - 1,
+                ),
+                ROW_RADIUS - 1,
+                if high_contrast() { bg } else { ROW_BG },
+            );
+            text(dc, area(X + 461, 211, X + W - 6, 245), "%", 13, ink);
+            text(dc, area(X + 5, 245, X + 54, 265), "0%", 12, muted);
+            interface_text(
+                dc,
+                area(X + 315, 245, X + 377, 265),
+                "100%",
+                12,
+                muted,
+                DT_RIGHT,
             );
         }
         GENERAL => {
@@ -478,21 +511,24 @@ pub(super) unsafe extern "system" fn combo_proc(
                 GetClientRect(hwnd, &mut r);
                 let w = r.right;
                 let h = r.bottom;
+                let open = SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0) != 0;
+                let focused = GetFocus() == hwnd || open;
                 fill(dc, &r, BG);
-                rounded_fill(
-                    dc,
-                    r,
-                    ROW_RADIUS,
-                    if GetFocus() == hwnd { SILVER } else { EDGE },
-                );
-                let face = if dialog::HOT.get() == hwnd {
+                rounded_fill(dc, r, ROW_RADIUS, if focused { SILVER } else { EDGE });
+                let face = if open || dialog::HOT.get() == hwnd {
                     HOVER_BG
                 } else {
                     ROW_BG
                 };
                 rounded_fill(dc, area(1, 1, w - 1, h - 1), ROW_RADIUS - 1, face);
-                text(dc, area(8, 0, w - 23, h), &window_text(hwnd), 13, INK);
-                glyph(dc, area(w - 24, 0, w - 3, h), "\u{e70d}", 10, MUTED);
+                text(dc, area(12, 0, w - 33, h), &window_text(hwnd), 13, INK);
+                glyph(
+                    dc,
+                    area(w - 31, 0, w - 7, h),
+                    if open { "\u{e70e}" } else { "\u{e70d}" },
+                    11,
+                    SILVER,
+                );
                 if msg == WM_PAINT {
                     EndPaint(hwnd, &ps);
                 }
