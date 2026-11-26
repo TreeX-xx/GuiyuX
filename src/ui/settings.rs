@@ -331,7 +331,7 @@ fn layout(hwnd: HWND) {
             );
         }
         APPEARANCE => {
-            let style = DATA.with_borrow(|s| s.menu);
+            let style = DATA.with_borrow(|s| s.appearance);
             editor::populate(
                 hwnd,
                 MATERIAL,
@@ -428,14 +428,15 @@ fn command(hwnd: HWND, id: i32, event: u32) -> io::Result<()> {
             if let Some(index) = choice(hwnd, id, CB_GETCURSEL) {
                 let style = collection::update(|s| {
                     if id == MATERIAL {
-                        s.menu.frosted = index == 0;
+                        s.appearance.frosted = index == 0;
                     } else {
-                        s.menu.transparency = (index.min(4) * 15) as u8;
+                        s.appearance.transparency = (index.min(4) * 15) as u8;
                     }
-                    s.menu
+                    s.appearance
                 })?;
-                MENU_APPEARANCE.set(style);
-                DATA.with_borrow_mut(|s| s.menu = style);
+                APPEARANCE_STYLE.set(style);
+                DATA.with_borrow_mut(|s| s.appearance = style);
+                island::appearance_changed();
             }
         }
         (TOGGLE, 0) => {

@@ -14,6 +14,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 
 mod actions;
 pub(super) mod art;
+mod backdrop;
 mod drag;
 mod item_icon;
 mod nav;
@@ -25,6 +26,7 @@ mod surface;
 mod tips;
 
 const PRESENT: u32 = WM_APP + 1;
+const ISLAND_RADIUS: i32 = 12;
 const RESIZE_TIMER: usize = 3;
 const HOVER_TIMER: usize = 2;
 const HEADER: i32 = 101;
@@ -499,6 +501,13 @@ fn schedule_frame(hwnd: HWND) {
     }
 }
 
+pub(super) fn appearance_changed() {
+    let hwnd = ISLAND.get();
+    if !hwnd.is_null() {
+        schedule_frame(hwnd);
+    }
+}
+
 fn paint_background(dc: HDC, mut r: RECT) {
     fill(dc, &r, BG);
     if EXPANDED.get() && VIEW.get() == View::More {
@@ -571,6 +580,21 @@ pub(super) unsafe extern "system" fn procedure(
                 }
             }
             0
+        }
+        WM_WINDOWPOSCHANGED => {
+            let result = unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
+            let pos = unsafe { &*(lp as *const WINDOWPOS) };
+            if pos.flags & (SWP_HIDEWINDOW | SWP_SHOWWINDOW) != 0 || pos.flags & SWP_NOZORDER == 0 {
+                surface::sync_backdrop(hwnd);
+            }
+            result
+        }
+        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_DWMCOMPOSITIONCHANGED => {
+            if msg == WM_DWMCOMPOSITIONCHANGED {
+                backdrop::reset();
+            }
+            appearance_changed();
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
         }
         WM_ERASEBKGND => 1,
         WM_PAINT => unsafe {
@@ -692,6 +716,8 @@ pub(super) unsafe extern "system" fn procedure(
             0
         }
         WM_DESTROY => {
+            ISLAND.set(null_mut());
+            backdrop::reset();
             drag::unregister(hwnd);
             unsafe {
                 PostQuitMessage(0);

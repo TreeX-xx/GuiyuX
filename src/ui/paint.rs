@@ -12,7 +12,6 @@ pub(super) const FOCUS_BG: u32 = 0x565353;
 pub(super) const INK: u32 = 0xf6f5f5;
 pub(super) const MUTED: u32 = 0xb9b6b6;
 pub(super) const SILVER: u32 = 0xe1dede;
-pub(super) const CORAL: u32 = 0x9499fc;
 
 pub(super) fn bitmap_info(w: i32, h: i32) -> BITMAPINFO {
     BITMAPINFO {

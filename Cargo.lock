@@ -50,6 +50,7 @@ dependencies = [
  "tempfile",
  "windows",
  "windows-core",
+ "windows-numerics",
  "windows-sys",
 ]
 

@@ -52,8 +52,8 @@ pub(super) fn panel(hwnd: HWND, dc: HDC) {
     text(dc, area(X, 13, WIDTH - 22, 55), title(page), 20, ink);
     let hint = match page {
         APPEARANCE => tr(
-            "调整右键菜单背景，下次打开菜单时生效。",
-            "Changes apply the next time you open a context menu.",
+            "背景效果和透明度用于灵动岛及右键菜单。",
+            "Background effect and transparency apply to the island and its menus.",
         ),
         BAR => tr(
             "前六个入口显示在胶囊上，点击「更多」可展开其余入口。",

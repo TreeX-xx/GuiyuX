@@ -13,6 +13,7 @@ const MENU_CLASS_ATOM: u32 = 0x8000; // Win32 popup menu class #32768.
 struct Frame {
     menu: HMENU,
     items: Rc<[Item]>,
+    palette: &'static Palette,
     window: Cell<HWND>,
     added_layer: Cell<bool>,
     disabled: Cell<bool>,
@@ -34,6 +35,7 @@ fn register_popup(popup: &Popup, frames: &mut Vec<Rc<Frame>>) {
     frames.push(Rc::new(Frame {
         menu: popup.handle,
         items: popup.items.clone(),
+        palette: popup.palette,
         window: Cell::default(),
         added_layer: Cell::default(),
         disabled: Cell::default(),
@@ -155,11 +157,11 @@ pub(super) fn select(menu: HMENU, wp: WPARAM) {
     }
 }
 
-fn artwork(w: i32, h: i32, selected: u32, items: &[Item]) -> io::Result<Bitmap> {
+fn artwork(w: i32, h: i32, selected: u32, items: &[Item], palette: &Palette) -> io::Result<Bitmap> {
     let mut bitmap = Bitmap::new(w, h)?;
     let dc = bitmap.dc;
-    fill(dc, &area(0, 0, w, h), BORDER);
-    rounded_fill(dc, area(1, 1, w - 1, h - 1), PANEL_RADIUS - 1, POPUP_BG);
+    fill(dc, &area(0, 0, w, h), palette.border);
+    rounded_fill(dc, area(1, 1, w - 1, h - 1), PANEL_RADIUS - 1, palette.face);
     let content_height: i32 = items.iter().map(|item| item.row.height()).sum();
     if content_height > h {
         // Let User32 draw its scroll arrows when a destination list exceeds the work area.
@@ -198,17 +200,24 @@ fn repaint(hwnd: HWND, frame: &Frame) {
             return;
         }
         frame.last.set(Some((w, h, id)));
-        let style = MENU_APPEARANCE.get();
+        let style = APPEARANCE_STYLE.get();
         if previous.is_none() && style.frosted && style.transparency > 0 {
             frame.backdrop.replace(glass::Backdrop::capture(bounds));
         }
-        if artwork(w, h, id, &frame.items)
+        if artwork(w, h, id, &frame.items, frame.palette)
             .and_then(|mut bmp| {
                 glass::blend(
                     &mut bmp,
                     w,
                     h,
-                    style.transparency,
+                    frame.palette.face,
+                    // Glass keeps a denser tint for legibility. Plain transparency
+                    // uses the selected percentage directly.
+                    if style.frosted {
+                        style.transparency / 2
+                    } else {
+                        style.transparency
+                    },
                     frame.backdrop.borrow().as_ref(),
                 );
                 bmp.present(hwnd, None, SIZE { cx: w, cy: h })
@@ -288,7 +297,7 @@ mod tests {
                 Row::separator(),
                 Row::new(3, "Settings", "\u{e713}"),
             ],
-            true,
+            Some(&palette::LIGHT),
         )
         .unwrap();
         let _watch = Watch::start(&root);
@@ -299,8 +308,8 @@ mod tests {
         for (handle, id, height, y) in [(root.handle, 4, 110, 44), (child, 100, 38, 12)] {
             let frame = find(handle).unwrap();
             assert_eq!(frame.selected.get(), id);
-            let mut idle = artwork(180, height, 0, &frame.items).unwrap();
-            let mut hovered = artwork(180, height, id, &frame.items).unwrap();
+            let mut idle = artwork(180, height, 0, &frame.items, frame.palette).unwrap();
+            let mut hovered = artwork(180, height, id, &frame.items, frame.palette).unwrap();
             assert_ne!(
                 idle.pixels()[y * 180 + 130],
                 hovered.pixels()[y * 180 + 130]
@@ -314,7 +323,7 @@ mod tests {
         let class = "GuiyuX.Test.MenuShadow";
         register(class, Some(DefWindowProcW)).unwrap();
         let hwnd = window(class, "", WS_POPUP, 0, null_mut(), 0).unwrap();
-        let popup = Popup::new(main_rows(), true).unwrap();
+        let popup = Popup::new(main_rows(), Some(&palette::DARK)).unwrap();
         let mut frames = Vec::new();
         register_popup(&popup, &mut frames);
         unsafe {
@@ -342,13 +351,15 @@ mod tests {
 
     #[test]
     fn menu_outline_stays_transparent_and_symmetric_as_selection_moves() {
-        let popup = Popup::new(main_rows(), true).unwrap();
-        for (w, h) in [(152, 102), (211, 106)] {
-            let mut idle = artwork(w, h, 0, &popup.items).unwrap();
+        for (w, h, theme) in [(212, 110, &palette::LIGHT), (215, 114, &palette::DARK)] {
+            let popup = Popup::new(main_rows(), Some(theme)).unwrap();
+            let mut idle = artwork(w, h, 0, &popup.items, theme).unwrap();
             let pixels = idle.pixels();
             let alpha = |x: i32, y: i32| pixels[(y * w + x) as usize] >> 24;
             assert_eq!(alpha(0, 0), 0);
             assert_eq!(alpha(PANEL_RADIUS, 0), 255);
+            let rgba = |c: u32| 0xff000000 | (c & 255) << 16 | (c & 0xff00) | c >> 16;
+            assert_eq!(pixels[(16 * w + w - 10) as usize], rgba(theme.face));
             assert!((0..PANEL_RADIUS).any(|x| (1..255).contains(&alpha(x, 2))));
             for y in 0..PANEL_RADIUS {
                 for x in 0..PANEL_RADIUS {
@@ -358,7 +369,7 @@ mod tests {
                 }
             }
             for item in popup.items.iter() {
-                let mut hovered = artwork(w, h, item.row.id, &popup.items).unwrap();
+                let mut hovered = artwork(w, h, item.row.id, &popup.items, theme).unwrap();
                 assert!(
                     pixels
                         .iter()

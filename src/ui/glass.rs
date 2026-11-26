@@ -1,4 +1,4 @@
-// 菜单背景设计见 .agents/notes/module.md「当前工程」。
+// 灵动岛与右键菜单的材质见 .agents/notes/module.md「灵动岛与菜单外观」。
 use super::*;
 
 // Sample only this popup's bounds, before its first layered surface is presented.
@@ -77,39 +77,52 @@ impl Backdrop {
     }
 }
 
-pub(super) fn blend(bitmap: &mut Bitmap, w: i32, h: i32, percent: u8, backdrop: Option<&Backdrop>) {
+pub(super) fn blend(
+    bitmap: &mut Bitmap,
+    w: i32,
+    h: i32,
+    tint: u32,
+    percent: u8,
+    backdrop: Option<&Backdrop>,
+) {
     if percent == 0 {
         return;
     }
+    let base = [tint & 255, (tint >> 8) & 255, (tint >> 16) & 255];
     for (i, pixel) in bitmap.pixels().iter_mut().enumerate() {
         let a = *pixel >> 24;
         if a == 0 {
             continue;
         }
         let rgb = [(*pixel >> 16) & 255, (*pixel >> 8) & 255, *pixel & 255];
-        let base = [POPUP_BG & 255, (POPUP_BG >> 8) & 255, POPUP_BG >> 16];
-        // Preserve the brighter foreground strokes and the stronger hover tint.
+        // Measure toward black or white from the tint. This also protects black
+        // app icons on graphite and white details on a pale surface.
         let contrast = rgb
             .iter()
             .zip(base)
-            .map(|(c, b)| (c * 255 / a).abs_diff(b))
+            .map(|(c, b)| {
+                let value = if a == 255 { *c } else { c * 255 / a };
+                let range = if value < b { b } else { 255 - b };
+                value.abs_diff(b) * 255 / range.max(1)
+            })
             .max()
             .unwrap();
-        let transmission = a * u32::from(percent) * (64 - contrast.min(64)) / 6400;
+        // Nearby fills transmit equally so hover remains distinct over any backdrop.
+        let transmission = a * u32::from(percent) * (64 - contrast.clamp(32, 64)) / 3200;
         if transmission == 0 {
             continue;
         }
         let background = backdrop.map(|b| b.color(i as i32 % w, i as i32 / w, w, h));
-        let channel = |index: usize, shift: u32| {
-            let light = (background.unwrap_or(0) >> shift) & 255;
-            (rgb[index] + light * transmission / 255)
-                .saturating_sub(base[index] * transmission / 255)
-                .min(a)
-        };
         let alpha = if background.is_some() {
             a
         } else {
             a - transmission
+        };
+        let channel = |index: usize, shift: u32| {
+            let light = (background.unwrap_or(0) >> shift) & 255;
+            (rgb[index] + light * transmission / 255)
+                .saturating_sub(base[index] * transmission / 255)
+                .min(alpha)
         };
         *pixel = alpha << 24 | channel(0, 16) << 16 | channel(1, 8) << 8 | channel(2, 0);
     }
@@ -130,15 +143,37 @@ mod tests {
         let original = [surface, surface, surface, 0xffffffff, 0];
         let mut bmp = Bitmap::new(5, 1).unwrap();
         bmp.pixels().copy_from_slice(&original);
-        blend(&mut bmp, 5, 1, 0, Some(&backdrop));
+        blend(&mut bmp, 5, 1, POPUP_BG, 0, Some(&backdrop));
         assert_eq!(bmp.pixels(), original);
-        blend(&mut bmp, 5, 1, 30, None);
+        blend(&mut bmp, 5, 1, POPUP_BG, 30, None);
         assert_eq!(bmp.pixels()[0] >> 24, 179);
         assert_eq!(&bmp.pixels()[3..], &original[3..]);
         bmp.pixels().copy_from_slice(&original);
-        blend(&mut bmp, 5, 1, 60, Some(&backdrop));
+        blend(&mut bmp, 5, 1, POPUP_BG, 60, Some(&backdrop));
         let pixels = bmp.pixels();
         assert!(pixels[0] < pixels[1] && pixels[1] < pixels[2]);
         assert_eq!(&pixels[3..], &original[3..]);
+    }
+
+    #[test]
+    fn hover_contrast_and_foreground_survive_an_opposite_background() {
+        let gray = |v: u32| v * 0x010101;
+        for (tint, hover, behind) in [(55, 73, 255), (244, 228, 0)] {
+            let backdrop = Backdrop {
+                samples: vec![gray(behind)],
+                cols: 1,
+                rows: 1,
+            };
+            let original = [gray(tint), gray(hover), 0, 0xffffff].map(|rgb| 0xff000000 | rgb);
+            let mut bmp = Bitmap::new(4, 1).unwrap();
+            bmp.pixels().copy_from_slice(&original);
+            blend(&mut bmp, 4, 1, gray(tint), 30, Some(&backdrop));
+            let pixels = bmp.pixels();
+            assert_eq!(
+                (pixels[1] & 255) as i32 - (pixels[0] & 255) as i32,
+                hover as i32 - tint as i32
+            );
+            assert_eq!(&pixels[2..], &original[2..]);
+        }
     }
 }

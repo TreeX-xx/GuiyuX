@@ -10,12 +10,12 @@ use std::{
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
-pub struct MenuAppearance {
+pub struct Appearance {
     pub frosted: bool,
     pub transparency: u8,
 }
 
-impl Default for MenuAppearance {
+impl Default for Appearance {
     fn default() -> Self {
         Self {
             frosted: true,
@@ -28,7 +28,9 @@ impl Default for MenuAppearance {
 #[serde(default)]
 pub struct Settings {
     pub language: Language,
-    pub menu: MenuAppearance,
+    // The island and menus share the appearance saved by menu-only versions.
+    #[serde(rename = "menu")]
+    pub appearance: Appearance,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     inbox: Vec<PathBuf>,
     pub auto_sort: bool,
@@ -44,7 +46,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             language: Language::System,
-            menu: MenuAppearance::default(),
+            appearance: Appearance::default(),
             inbox: vec![],
             items: vec![],
             auto_sort: true,
@@ -66,7 +68,7 @@ pub fn load(path: &Path) -> io::Result<Settings> {
     match fs::read(path) {
         Ok(bytes) => {
             let mut data: Settings = serde_json::from_slice(&bytes)?;
-            data.menu.transparency = (data.menu.transparency.min(60) + 7) / 15 * 15;
+            data.appearance.transparency = (data.appearance.transparency.min(60) + 7) / 15 * 15;
             let migrate_bar = data.bar_revision == 0;
             if migrate_bar {
                 let defaults = collection::default_bar();
@@ -110,13 +112,18 @@ mod tests {
         let path = dir.path().join("settings.json");
         fs::write(&path, "{}").unwrap();
         let mut settings = load(&path).unwrap();
-        assert_eq!(settings.menu, MenuAppearance::default());
-        settings.menu = MenuAppearance {
-            frosted: false,
-            transparency: 45,
-        };
+        assert_eq!(settings.appearance, Appearance::default());
+        fs::write(&path, r#"{"menu":{"frosted":false,"transparency":45}}"#).unwrap();
+        settings = load(&path).unwrap();
+        assert_eq!(
+            settings.appearance,
+            Appearance {
+                frosted: false,
+                transparency: 45,
+            }
+        );
         save(&path, &settings).unwrap();
-        assert_eq!(load(&path).unwrap().menu, settings.menu);
+        assert_eq!(load(&path).unwrap().appearance, settings.appearance);
     }
 
     #[test]

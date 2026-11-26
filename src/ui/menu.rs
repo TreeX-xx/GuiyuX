@@ -5,13 +5,14 @@ use windows_sys::Win32::UI::Controls::{DRAWITEMSTRUCT, MEASUREITEMSTRUCT, ODS_SE
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_APPS, VK_F10, VK_SHIFT};
 
 mod frame;
-mod glass;
+mod palette;
+use palette::Palette;
 
 const OPEN_SETTINGS: u32 = 4001;
 const QUIT: u32 = 4002;
 const ORGANIZE: u32 = 4003;
 
-const BORDER: u32 = 0x504c4c;
+const MENU_TEXT_SIZE: i32 = 14;
 const INSET: i32 = PANEL_RADIUS - ROW_RADIUS;
 
 pub(super) fn context_key(owner: HWND, msg: &MSG) -> bool {
@@ -73,6 +74,7 @@ fn main_rows() -> Vec<Row> {
             crate::language().pick("立即整理", "Organize now"),
             "\u{e8cb}",
         ),
+        Row::separator(),
         Row {
             accent: true,
             ..Row::new(QUIT, t.quit, "\u{e7e8}")
@@ -87,6 +89,7 @@ struct Item {
     wide_name: Vec<u16>,
     row: Row,
     submenu: Option<Popup>,
+    palette: &'static Palette,
 }
 
 struct Popup {
@@ -94,17 +97,20 @@ struct Popup {
     owned: bool,
     brush: HBRUSH,
     items: Rc<[Item]>,
+    palette: &'static Palette,
 }
 
 impl Popup {
-    fn new(rows: Vec<Row>, custom: bool) -> io::Result<Self> {
+    fn new(rows: Vec<Row>, theme: Option<&'static Palette>) -> io::Result<Self> {
+        let custom = theme.is_some();
+        let palette = theme.unwrap_or(&palette::LIGHT);
         let mut items = Vec::new();
         for mut row in rows {
             let mut wide_name = wide(&row.name);
             let submenu = row
                 .children
                 .take()
-                .map(|rows| Self::new(rows, custom))
+                .map(|rows| Self::new(rows, theme))
                 .transpose()?;
             items.push(Item {
                 accessible: MSAAMENUINFO {
@@ -115,6 +121,7 @@ impl Popup {
                 wide_name,
                 row,
                 submenu,
+                palette,
             });
         }
         unsafe {
@@ -126,11 +133,12 @@ impl Popup {
                 handle,
                 owned: true,
                 brush: if custom {
-                    CreateSolidBrush(POPUP_BG)
+                    CreateSolidBrush(palette.face)
                 } else {
                     null_mut()
                 },
                 items: items.into(),
+                palette,
             };
             if custom {
                 let info = MENUINFO {
@@ -190,7 +198,7 @@ impl Drop for Popup {
 
 pub(super) fn track(owner: HWND, pt: POINT, rows: Vec<Row>, flags: u32) -> io::Result<i32> {
     let custom = !high_contrast();
-    let popup = Popup::new(rows, custom)?;
+    let popup = Popup::new(rows, custom.then(palette::system))?;
     unsafe {
         SetForegroundWindow(owner);
         let _frame = custom.then(|| frame::Watch::start(&popup));
@@ -247,7 +255,7 @@ pub(super) fn measure(lp: LPARAM) -> bool {
     let mut width = SIZE::default();
     unsafe {
         let dc = GetDC(null_mut());
-        let font = interface_font(&row.name, POPUP_TEXT_SIZE, 1);
+        let font = interface_font(&row.name, MENU_TEXT_SIZE, 1);
         let old = SelectObject(dc, font);
         let name = &entry.wide_name;
         GetTextExtentPoint32W(dc, name.as_ptr(), (name.len() - 1) as i32, &mut width);
@@ -255,7 +263,7 @@ pub(super) fn measure(lp: LPARAM) -> bool {
         DeleteObject(font);
         ReleaseDC(null_mut(), dc);
     }
-    item.itemWidth = 132.max(width.cx + 58) as u32;
+    item.itemWidth = 196.max(width.cx + 72) as u32;
     item.itemHeight = row.height() as u32;
     true
 }
@@ -266,31 +274,32 @@ pub(super) fn draw(d: &DRAWITEMSTRUCT) -> bool {
     }
     let r = d.rcItem;
     // Also supplies the native fallback if the layered surface is unavailable.
-    fill(d.hDC, &r, POPUP_BG);
-    let face = area(r.left + 1, r.top + 1, r.right - 1, r.bottom - 1);
-    draw_item(
-        d.hDC,
-        face,
-        unsafe { &*(d.itemData as *const Item) },
-        d.itemState & ODS_SELECTED != 0,
-    );
+    let item = unsafe { &*(d.itemData as *const Item) };
+    fill(d.hDC, &r, item.palette.face);
+    let face = area(r.left + INSET, r.top + 1, r.right - INSET, r.bottom - 1);
+    draw_item(d.hDC, face, item, d.itemState & ODS_SELECTED != 0);
     true
 }
 
 fn draw_item(dc: HDC, r: RECT, item: &Item, active: bool) {
     let row = &item.row;
+    let palette = item.palette;
     if row.id == 0 {
         let y = (r.top + r.bottom) / 2;
-        fill(dc, &area(r.left + 8, y, r.right - 8, y + 1), EDGE);
+        fill(
+            dc,
+            &area(r.left + 8, y, r.right - 8, y + 1),
+            palette.divider,
+        );
         return;
     }
     if active {
-        rounded_fill(dc, r, ROW_RADIUS, HOVER_BG);
+        rounded_fill(dc, r, ROW_RADIUS, palette.hover);
     }
     let (tint, ink) = if row.accent {
-        (CORAL, CORAL)
+        (palette.danger, palette.danger)
     } else {
-        (SILVER, INK)
+        (palette.icon, palette.text)
     };
     let right = if item.submenu.is_some() {
         glyph(
@@ -298,7 +307,7 @@ fn draw_item(dc: HDC, r: RECT, item: &Item, active: bool) {
             area(r.right - 20, r.top, r.right - 4, r.bottom),
             "\u{e76c}",
             10,
-            SILVER,
+            palette.icon,
         );
         r.right - 22
     } else {
@@ -306,16 +315,16 @@ fn draw_item(dc: HDC, r: RECT, item: &Item, active: bool) {
     };
     glyph(
         dc,
-        area(r.left + 4, r.top, r.left + 26, r.bottom),
+        area(r.left + 9, r.top, r.left + 29, r.bottom),
         row.icon,
-        14,
+        16,
         tint,
     );
     interface_text(
         dc,
-        area(r.left + 31, r.top, right, r.bottom),
+        area(r.left + 39, r.top, right, r.bottom),
         &row.name,
-        POPUP_TEXT_SIZE,
+        MENU_TEXT_SIZE,
         ink,
         DT_LEFT,
     );

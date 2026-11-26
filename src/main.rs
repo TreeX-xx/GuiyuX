@@ -43,7 +43,7 @@ fn run() -> std::io::Result<()> {
     let _apartment = shell::Apartment::open()?;
     let settings = config::load(&path)?;
     LANGUAGE.set(settings.language);
-    ui::MENU_APPEARANCE.set(settings.menu);
+    ui::APPEARANCE_STYLE.set(settings.appearance);
     ui::run()
 }
 

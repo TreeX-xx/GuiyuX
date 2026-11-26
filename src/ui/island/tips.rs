@@ -90,7 +90,7 @@ fn show(tip: HWND) -> bool {
         };
         // TTN_SHOW supplies the visible native tooltip and its accessibility.
         // Commit its artwork and anchor position together before it is shown.
-        surface::layer(tip, bounds, ROW_RADIUS, 255, |dc, rect| {
+        surface::layer(tip, bounds, ROW_RADIUS, 255, 0, |dc, rect| {
             fill(dc, &rect, POPUP_BG);
             interface_text(dc, rect, &text, POPUP_TEXT_SIZE, INK, DT_CENTER);
         })
