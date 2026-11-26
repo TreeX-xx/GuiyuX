@@ -34,60 +34,39 @@ pub(super) fn context(hwnd: HWND, wp: WPARAM, lp: LPARAM) -> io::Result<()> {
     let data = collection::current()?;
     let lang = crate::language();
     let pinned = data.bar.contains(&entry);
-    let root = unsafe { CreatePopupMenu() };
-    if root.is_null() {
-        return Err(io::Error::last_os_error());
-    }
     let groups: Vec<_> = data.groups().collect();
-    let command = unsafe {
-        AppendMenuW(
-            root,
-            MF_STRING,
-            1,
-            wide(if pinned {
-                lang.pick("从快捷栏移除", "Unpin from bar")
-            } else {
-                lang.pick("固定到快捷栏", "Pin to bar")
+    let mut rows = vec![menu::Row::new(
+        1,
+        if pinned {
+            lang.pick("从快捷栏移除", "Unpin from bar")
+        } else {
+            lang.pick("固定到快捷栏", "Pin to bar")
+        },
+        if pinned { "\u{e77a}" } else { "\u{e718}" },
+    )];
+    if let Shortcut::Item(_) = entry {
+        let destinations = groups
+            .iter()
+            .enumerate()
+            .map(|(i, group)| {
+                menu::Row::new(100 + i as u32, data.group_name(*group, lang), "\u{e8b7}")
             })
-            .as_ptr(),
-        );
-        if let Shortcut::Item(_) = entry {
-            let submenu = CreatePopupMenu();
-            for (i, g) in groups.iter().enumerate() {
-                AppendMenuW(
-                    submenu,
-                    MF_STRING,
-                    100 + i,
-                    wide(&data.group_name(*g, lang)).as_ptr(),
-                );
-            }
-            AppendMenuW(
-                root,
-                MF_POPUP,
-                submenu as usize,
-                wide(lang.pick("移至分类或文件夹", "Move to group or folder")).as_ptr(),
-            );
-            AppendMenuW(
-                root,
-                MF_STRING,
-                2,
-                wide(lang.pick("跟随规则", "Follow rules")).as_ptr(),
-            );
-        }
-        AppendMenuW(root, MF_SEPARATOR, 0, null_mut());
-        AppendMenuW(root, MF_STRING, 3, wide(lang.text().settings).as_ptr());
-        let command = TrackPopupMenu(
-            root,
-            TPM_RETURNCMD | TPM_RIGHTBUTTON,
-            pt.x,
-            pt.y,
-            0,
-            hwnd,
-            null_mut(),
-        );
-        DestroyMenu(root);
-        command
-    };
+            .collect();
+        rows.push(menu::Row::submenu(
+            4,
+            lang.pick("移至分类或文件夹", "Move to group or folder"),
+            "\u{e8de}",
+            destinations,
+        ));
+        rows.push(menu::Row::new(
+            2,
+            lang.pick("跟随规则", "Follow rules"),
+            "\u{e8a5}",
+        ));
+    }
+    rows.push(menu::Row::separator());
+    rows.push(menu::Row::new(3, lang.text().settings, "\u{e713}"));
+    let command = menu::track(hwnd, pt, rows, TPM_RETURNCMD)?;
     match command {
         0 => return Ok(()),
         3 => return settings::open(),

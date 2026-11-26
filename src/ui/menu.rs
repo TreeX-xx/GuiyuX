@@ -1,4 +1,5 @@
 use super::*;
+use std::rc::Rc;
 use windows_sys::Win32::UI::Accessibility::{MSAA_MENU_SIG, MSAAMENUINFO};
 use windows_sys::Win32::UI::Controls::{DRAWITEMSTRUCT, MEASUREITEMSTRUCT, ODS_SELECTED, ODT_MENU};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_APPS, VK_F10, VK_SHIFT};
@@ -8,7 +9,7 @@ mod frame;
 const OPEN_SETTINGS: u32 = 4001;
 const QUIT: u32 = 4002;
 const ORGANIZE: u32 = 4003;
-const COMMANDS: [u32; 3] = [OPEN_SETTINGS, ORGANIZE, QUIT];
+
 const BORDER: u32 = 0x504c4c;
 const INSET: i32 = PANEL_RADIUS - ROW_RADIUS;
 
@@ -24,50 +25,113 @@ pub(super) fn context_key(owner: HWND, msg: &MSG) -> bool {
 }
 
 pub(super) fn select(wp: WPARAM, lp: LPARAM) {
-    frame::select(lp as HMENU, (wp & 0xffff) as u32);
+    frame::select(lp as HMENU, wp);
+}
+
+pub(super) struct Row {
+    id: u32,
+    name: String,
+    icon: &'static str,
+    children: Option<Vec<Row>>,
+    accent: bool,
+}
+
+impl Row {
+    pub(super) fn new(id: u32, name: impl Into<String>, icon: &'static str) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            icon,
+            children: None,
+            accent: false,
+        }
+    }
+
+    pub(super) fn separator() -> Self {
+        Self::new(0, "", "")
+    }
+
+    pub(super) fn submenu(id: u32, name: &str, icon: &'static str, children: Vec<Row>) -> Self {
+        Self {
+            children: Some(children),
+            ..Self::new(id, name, icon)
+        }
+    }
+
+    fn height(&self) -> i32 {
+        if self.id == 0 { 8 } else { 32 }
+    }
+}
+
+fn main_rows() -> Vec<Row> {
+    let t = crate::language().text();
+    vec![
+        Row::new(OPEN_SETTINGS, format!("{}…", t.settings), "\u{e713}"),
+        Row::new(
+            ORGANIZE,
+            crate::language().pick("立即整理", "Organize now"),
+            "\u{e8cb}",
+        ),
+        Row {
+            accent: true,
+            ..Row::new(QUIT, t.quit, "\u{e7e8}")
+        },
+    ]
+}
+
+// User32 reads the leading MSAA record to name an owner-drawn menu item.
+#[repr(C)]
+struct Item {
+    accessible: MSAAMENUINFO,
+    wide_name: Vec<u16>,
+    row: Row,
+    submenu: Option<Popup>,
 }
 
 struct Popup {
     handle: HMENU,
+    owned: bool,
     brush: HBRUSH,
-    // User32 retains the addresses of both the MSAA records and their UTF-16 text.
-    names: [Vec<u16>; 3],
-    accessible: Box<[MSAAMENUINFO; 3]>,
+    items: Rc<[Item]>,
 }
 
 impl Popup {
-    fn new() -> io::Result<Self> {
+    fn new(rows: Vec<Row>, custom: bool) -> io::Result<Self> {
+        let mut items = Vec::new();
+        for mut row in rows {
+            let mut wide_name = wide(&row.name);
+            let submenu = row
+                .children
+                .take()
+                .map(|rows| Self::new(rows, custom))
+                .transpose()?;
+            items.push(Item {
+                accessible: MSAAMENUINFO {
+                    dwMSAASignature: MSAA_MENU_SIG as u32,
+                    cchWText: (wide_name.len() - 1) as u32,
+                    pszWText: wide_name.as_mut_ptr(),
+                },
+                wide_name,
+                row,
+                submenu,
+            });
+        }
         unsafe {
             let handle = CreatePopupMenu();
             if handle.is_null() {
                 return Err(io::Error::last_os_error());
             }
-            let custom = !high_contrast();
-            let t = crate::language().text();
-            let mut names = [
-                wide(&format!("{}…", t.settings)),
-                wide(crate::language().pick("立即整理", "Organize now")),
-                wide(t.quit),
-            ];
-            let accessible = Box::new(names.each_mut().map(|name| MSAAMENUINFO {
-                dwMSAASignature: MSAA_MENU_SIG as u32,
-                cchWText: (name.len() - 1) as u32,
-                pszWText: name.as_mut_ptr(),
-            }));
-            let popup = Self {
+            let mut popup = Self {
                 handle,
+                owned: true,
                 brush: if custom {
                     CreateSolidBrush(POPUP_BG)
                 } else {
                     null_mut()
                 },
-                names,
-                accessible,
+                items: items.into(),
             };
             if custom {
-                if popup.brush.is_null() {
-                    return Err(io::Error::last_os_error());
-                }
                 let info = MENUINFO {
                     cbSize: size_of::<MENUINFO>() as u32,
                     fMask: MIM_BACKGROUND | MIM_STYLE,
@@ -75,22 +139,34 @@ impl Popup {
                     dwStyle: MNS_NOCHECK,
                     ..Default::default()
                 };
-                if SetMenuInfo(handle, &info) == 0 {
+                if popup.brush.is_null() || SetMenuInfo(handle, &info) == 0 {
                     return Err(io::Error::last_os_error());
                 }
             }
-            for (index, id) in COMMANDS.into_iter().enumerate() {
-                let item = MENUITEMINFOW {
+            for (index, item) in Rc::get_mut(&mut popup.items)
+                .unwrap()
+                .iter_mut()
+                .enumerate()
+            {
+                let info = MENUITEMINFOW {
                     cbSize: size_of::<MENUITEMINFOW>() as u32,
-                    fMask: MIIM_FTYPE | MIIM_ID | MIIM_STRING | MIIM_DATA,
-                    wID: id,
-                    fType: if custom { MFT_OWNERDRAW } else { MFT_STRING },
-                    dwTypeData: popup.names[index].as_ptr().cast_mut(),
-                    dwItemData: (&popup.accessible[index] as *const MSAAMENUINFO) as usize,
+                    fMask: MIIM_FTYPE | MIIM_ID | MIIM_STRING | MIIM_DATA | MIIM_SUBMENU,
+                    wID: item.row.id,
+                    fType: (if custom { MFT_OWNERDRAW } else { MFT_STRING })
+                        | if item.row.id == 0 { MFT_SEPARATOR } else { 0 },
+                    dwTypeData: item.wide_name.as_mut_ptr(),
+                    dwItemData: item as *const Item as usize,
+                    hSubMenu: item
+                        .submenu
+                        .as_ref()
+                        .map_or(null_mut(), |child| child.handle),
                     ..Default::default()
                 };
-                if InsertMenuItemW(handle, index as u32, 1, &item) == 0 {
+                if InsertMenuItemW(handle, index as u32, 1, &info) == 0 {
                     return Err(io::Error::last_os_error());
+                }
+                if let Some(child) = &mut item.submenu {
+                    child.owned = false; // DestroyMenu on the parent now owns this handle.
                 }
             }
             Ok(popup)
@@ -101,7 +177,9 @@ impl Popup {
 impl Drop for Popup {
     fn drop(&mut self) {
         unsafe {
-            DestroyMenu(self.handle);
+            if self.owned {
+                DestroyMenu(self.handle);
+            }
             if !self.brush.is_null() {
                 DeleteObject(self.brush);
             }
@@ -109,30 +187,41 @@ impl Drop for Popup {
     }
 }
 
-pub(super) fn show(owner: HWND, lp: LPARAM) -> io::Result<()> {
+pub(super) fn track(owner: HWND, pt: POINT, rows: Vec<Row>, flags: u32) -> io::Result<i32> {
+    let custom = !high_contrast();
+    let popup = Popup::new(rows, custom)?;
     unsafe {
-        let popup = Popup::new()?;
-        let (x, y) = if lp == -1 {
-            let mut r = RECT::default();
-            GetWindowRect(owner, &mut r);
-            ((r.left + r.right) / 2, r.bottom + 4)
-        } else {
-            (lp as i16 as i32, (lp >> 16) as i16 as i32)
-        };
         SetForegroundWindow(owner);
-        let custom = !popup.brush.is_null();
-        let _frame = custom.then(|| frame::Watch::start(popup.handle));
-        TrackPopupMenu(
+        let _frame = custom.then(|| frame::Watch::start(&popup));
+        Ok(TrackPopupMenu(
             popup.handle,
-            TPM_RIGHTBUTTON | if custom { TPM_NOANIMATION } else { 0 },
-            x,
-            y,
+            flags | TPM_RIGHTBUTTON | if custom { TPM_NOANIMATION } else { 0 },
+            pt.x,
+            pt.y,
             0,
             owner,
             null_mut(),
-        );
+        ))
     }
-    Ok(())
+}
+
+pub(super) fn show(owner: HWND, lp: LPARAM) -> io::Result<()> {
+    let pt = if lp == -1 {
+        let mut r = RECT::default();
+        unsafe {
+            GetWindowRect(owner, &mut r);
+        }
+        POINT {
+            x: (r.left + r.right) / 2,
+            y: r.bottom + 4,
+        }
+    } else {
+        POINT {
+            x: lp as i16 as i32,
+            y: (lp >> 16) as i16 as i32,
+        }
+    };
+    track(owner, pt, main_rows(), 0).map(|_| ())
 }
 
 pub(super) fn command(owner: HWND, id: u32) -> Option<io::Result<()>> {
@@ -149,56 +238,82 @@ pub(super) fn command(owner: HWND, id: u32) -> Option<io::Result<()>> {
 
 pub(super) fn measure(lp: LPARAM) -> bool {
     let item = unsafe { &mut *(lp as *mut MEASUREITEMSTRUCT) };
-    if item.CtlType != ODT_MENU {
+    if item.CtlType != ODT_MENU || item.itemData == 0 {
         return false;
     }
-    item.itemWidth = 132;
-    item.itemHeight = 32;
+    let entry = unsafe { &*(item.itemData as *const Item) };
+    let row = &entry.row;
+    let mut width = SIZE::default();
+    unsafe {
+        let dc = GetDC(null_mut());
+        let font = interface_font(&row.name, POPUP_TEXT_SIZE, 1);
+        let old = SelectObject(dc, font);
+        let name = &entry.wide_name;
+        GetTextExtentPoint32W(dc, name.as_ptr(), (name.len() - 1) as i32, &mut width);
+        SelectObject(dc, old);
+        DeleteObject(font);
+        ReleaseDC(null_mut(), dc);
+    }
+    item.itemWidth = 132.max(width.cx + 58) as u32;
+    item.itemHeight = row.height() as u32;
     true
 }
 
 pub(super) fn draw(d: &DRAWITEMSTRUCT) -> bool {
-    if d.CtlType != ODT_MENU {
+    if d.CtlType != ODT_MENU || d.itemData == 0 {
         return false;
     }
     let r = d.rcItem;
     // Also supplies the native fallback if the layered surface is unavailable.
     fill(d.hDC, &r, POPUP_BG);
     let face = area(r.left + 1, r.top + 1, r.right - 1, r.bottom - 1);
-    draw_item(d.hDC, face, d.itemID, d.itemState & ODS_SELECTED != 0);
+    draw_item(
+        d.hDC,
+        face,
+        unsafe { &*(d.itemData as *const Item) },
+        d.itemState & ODS_SELECTED != 0,
+    );
     true
 }
 
-fn draw_item(dc: HDC, r: RECT, id: u32, active: bool) {
-    let t = crate::language().text();
+fn draw_item(dc: HDC, r: RECT, item: &Item, active: bool) {
+    let row = &item.row;
+    if row.id == 0 {
+        let y = (r.top + r.bottom) / 2;
+        fill(dc, &area(r.left + 8, y, r.right - 8, y + 1), EDGE);
+        return;
+    }
     if active {
         rounded_fill(dc, r, ROW_RADIUS, HOVER_BG);
     }
-    let (icon, name, tint, ink) = if id == OPEN_SETTINGS {
-        ("\u{e713}", format!("{}…", t.settings), SILVER, INK)
-    } else if id == ORGANIZE {
-        (
-            "\u{e8cb}",
-            crate::language()
-                .pick("立即整理", "Organize now")
-                .to_owned(),
-            SILVER,
-            INK,
-        )
+    let (tint, ink) = if row.accent {
+        (CORAL, CORAL)
     } else {
-        ("\u{e7e8}", t.quit.to_owned(), CORAL, CORAL)
+        (SILVER, INK)
+    };
+    let right = if item.submenu.is_some() {
+        glyph(
+            dc,
+            area(r.right - 20, r.top, r.right - 4, r.bottom),
+            "\u{e76c}",
+            10,
+            SILVER,
+        );
+        r.right - 22
+    } else {
+        r.right - 8
     };
     glyph(
         dc,
         area(r.left + 4, r.top, r.left + 26, r.bottom),
-        icon,
+        row.icon,
         14,
         tint,
     );
     interface_text(
         dc,
-        area(r.left + 31, r.top, r.right - 8, r.bottom),
-        &name,
+        area(r.left + 31, r.top, right, r.bottom),
+        &row.name,
         POPUP_TEXT_SIZE,
         ink,
         DT_LEFT,
