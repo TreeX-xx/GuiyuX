@@ -35,6 +35,11 @@ pub(super) fn active() -> bool {
     !EXPANDED.get() && FEEDBACK.get().is_none() && nav::dock().mode == DockMode::AutoHide
 }
 
+pub(super) fn tucked_frame(w: i32, h: i32) -> bool {
+    let dock = nav::dock();
+    dock.mode == DockMode::AutoHide && (w, h) == STYLE.tucked_size(dock.edge)
+}
+
 // Only the outer arc of the pill is visible at the work-area edge. Both the
 // layered pixels and DWM use this outline in client coordinates.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -63,7 +68,7 @@ impl Outline {
     }
 
     pub(super) fn current(w: i32, h: i32) -> Self {
-        if active() {
+        if tucked_frame(w, h) {
             Self::sliced(nav::dock().edge, w, h)
         } else {
             Self {
@@ -71,7 +76,7 @@ impl Outline {
                 y: 0,
                 w,
                 h,
-                diameter: (2 * ISLAND_RADIUS).min(w).min(h),
+                diameter: (2 * frame_radius()).min(w).min(h),
             }
         }
     }

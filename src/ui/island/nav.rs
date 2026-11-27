@@ -201,13 +201,16 @@ pub(super) fn show(view: View) {
     let opening = !EXPANDED.replace(true) || TRANSITION.get().is_some_and(|m| m.closing);
     motion::clear_hover();
     let old = VIEW.replace(view);
+    if !opening && old != view {
+        autohide::changing_view();
+    }
     if matches!(view, View::Group(_)) && !matches!(old, View::Group(_)) {
         PARENT.set(old);
     }
     PAGE.set(0);
     FEEDBACK.set(None);
     rebuild();
-    if opening && view == View::Home && dock().mode == DockMode::AutoHide {
+    if opening && view == View::Home && dock().mode == DockMode::AutoHide && drag::active() {
         stop_transition(ISLAND.get());
     } else {
         start_transition(

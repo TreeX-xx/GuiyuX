@@ -86,17 +86,32 @@ fn control(parent: HWND, class: &str, style: u32, id: i32, rect: [i32; 4]) -> io
 }
 
 fn register(class: &str, proc: WNDPROC) -> io::Result<()> {
+    const IDI_GUIYUX: usize = 101;
     let name = wide(class);
     unsafe {
-        let wc = WNDCLASSW {
+        let instance = GetModuleHandleW(null_mut());
+        let icon = |cx, cy| {
+            LoadImageW(
+                instance,
+                IDI_GUIYUX as *const u16,
+                IMAGE_ICON,
+                GetSystemMetrics(cx),
+                GetSystemMetrics(cy),
+                LR_SHARED,
+            ) as HICON
+        };
+        let wc = WNDCLASSEXW {
+            cbSize: size_of::<WNDCLASSEXW>() as u32,
             lpfnWndProc: proc,
-            hInstance: GetModuleHandleW(null_mut()),
+            hInstance: instance,
+            hIcon: icon(SM_CXICON, SM_CYICON),
+            hIconSm: icon(SM_CXSMICON, SM_CYSMICON),
             hCursor: LoadCursorW(null_mut(), IDC_ARROW),
             hbrBackground: (COLOR_BTNFACE + 1) as _,
             lpszClassName: name.as_ptr(),
             ..Default::default()
         };
-        if RegisterClassW(&wc) == 0 {
+        if RegisterClassExW(&wc) == 0 {
             return Err(io::Error::last_os_error());
         }
     }

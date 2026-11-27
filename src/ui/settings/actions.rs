@@ -128,10 +128,10 @@ pub(super) fn summary(report: desktop::Organization) -> String {
 }
 
 fn apply_style(style: Appearance, commit: bool) -> io::Result<()> {
-    if style.transparency > 100 {
+    if style != style.bounded() {
         return Err(invalid(
-            "透明度应为 0–100。",
-            "Transparency must be between 0 and 100.",
+            "外观数值超出范围。",
+            "Appearance value is out of range.",
         ));
     }
     if commit && let Err(err) = collection::update(|s| s.appearance = style) {

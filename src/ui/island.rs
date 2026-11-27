@@ -32,6 +32,14 @@ mod tips;
 
 const PRESENT: u32 = WM_APP + 1;
 const ISLAND_RADIUS: i32 = 12;
+
+fn frame_radius() -> i32 {
+    if EXPANDED.get() {
+        i32::from(APPEARANCE_STYLE.get().corner_radius)
+    } else {
+        ISLAND_RADIUS
+    }
+}
 const RESIZE_TIMER: usize = 3;
 const HOVER_TIMER: usize = 2;
 const HEADER: i32 = 101;
@@ -57,6 +65,7 @@ const BUTTONS: [i32; SLOTS + 3] = {
 struct Resize {
     started: std::time::Instant,
     from: (i32, i32),
+    from_margin: i32,
     alpha: f32,
     closing: bool,
 }
@@ -212,6 +221,7 @@ fn start_transition(hwnd: HWND, closing: bool, keep_content: bool) {
             TRANSITION.set(Some(Resize {
                 started: std::time::Instant::now(),
                 from: (rect.right - rect.left, rect.bottom - rect.top),
+                from_margin: nav::dock().edge.margin(layout::work_area(), rect),
                 alpha: if keep_content {
                     1.0
                 } else if closing || TRANSITION.get().is_some_and(|m| m.closing) {
@@ -289,30 +299,48 @@ pub(super) fn refresh() {
         } else {
             dock.idle_size(hover, feedback)
         };
-        let (w, h) = if let Some(m) = TRANSITION.get() {
+        let idle_margin = dock.idle_margin();
+        let open_margin = APPEARANCE_STYLE
+            .get()
+            .edge_margin
+            .map(i32::from)
+            .unwrap_or(idle_margin);
+        let (w, h, gap) = if let Some(m) = TRANSITION.get() {
             let t = progress;
             let (w, h, blend, alpha) = if m.closing {
                 let eased = t * t * (3.0 - 2.0 * t);
                 let (w, h) = dock.idle_size(0., feedback);
                 (w, h, eased, m.alpha * (1.0 - t * 1.6).max(0.0))
             } else {
+                let blend = if dock.mode == DockMode::AutoHide && view == View::Home {
+                    t * t * (3.0 - 2.0 * t)
+                } else {
+                    1.0 - (1.0 - t).powi(3)
+                };
                 (
                     w,
                     h,
-                    1.0 - (1.0 - t).powi(3),
+                    blend,
                     m.alpha + (1.0 - m.alpha) * ((t - 0.18) / 0.82).clamp(0.0, 1.0),
                 )
             };
             CONTENT_ALPHA.set((255.0 * alpha).round() as u32);
             let between = |from: i32, to: i32| from + ((to - from) as f32 * blend).round() as i32;
-            (between(m.from.0, w), between(m.from.1, h))
+            (
+                between(m.from.0, w),
+                between(m.from.1, h),
+                between(
+                    m.from_margin,
+                    if m.closing { idle_margin } else { open_margin },
+                ),
+            )
         } else {
             CONTENT_ALPHA.set(255);
-            (w, h)
+            (w, h, if expanded { open_margin } else { idle_margin })
         };
         // Commit bounds with the finished layered bitmap. Resizing the live
         // window first can expose its previous frame around the moving edge.
-        let frame = dock.frame(layout::work_area(), w, h);
+        let frame = dock.frame(layout::work_area(), w, h, gap);
         FRAME_RECT.set(frame);
         let (w, h) = (frame.right - frame.left, frame.bottom - frame.top);
         let (strip, body) = dock.edge.split(w, h);
@@ -328,7 +356,7 @@ pub(super) fn refresh() {
                 text.categories
             },
             if category_bar {
-                bar.slot(strip, bar.length - 38, 32)
+                bar.slot(strip, bar.length - bar.padding - 32, 32)
             } else if expanded {
                 [4, 8, 34, 44]
             } else {
@@ -340,7 +368,11 @@ pub(super) fn refresh() {
             let id = FIRST + slot as i32;
             let row = nav::button_row(id);
             let rect = if category_bar && slot < BAR_SLOTS {
-                bar.slot(strip, 8 + slot as i32 * layout::CELL, layout::CELL)
+                bar.slot(
+                    strip,
+                    bar.padding + slot as i32 * (layout::CELL + bar.gap),
+                    layout::CELL,
+                )
             } else if board && slot >= BAR_SLOTS {
                 tiles::cell(body, count, slot - BAR_SLOTS)
             } else {
@@ -533,7 +565,7 @@ fn schedule_frame(hwnd: HWND) {
 pub(super) fn appearance_changed() {
     let hwnd = ISLAND.get();
     if !hwnd.is_null() {
-        schedule_frame(hwnd);
+        refresh();
     }
 }
 

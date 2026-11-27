@@ -32,12 +32,19 @@ impl Dock {
         )
     }
 
-    pub(super) fn frame(self, work: RECT, w: i32, h: i32) -> RECT {
-        let gap = if self.mode == DockMode::AutoHide {
+    pub(super) fn idle_margin(self) -> i32 {
+        if self.mode == DockMode::AutoHide {
             0
         } else {
             8
-        };
+        }
+    }
+
+    pub(super) fn frame(self, work: RECT, w: i32, h: i32, gap: i32) -> RECT {
+        let gap = gap.clamp(
+            0,
+            ((work.right - work.left).min(work.bottom - work.top) - 1).max(0) / 2,
+        );
         let w = w.clamp(1, (work.right - work.left - 2 * gap).max(1));
         let h = h.clamp(1, (work.bottom - work.top - 2 * gap).max(1));
         let center_x = work.left + (work.right - work.left - w) / 2;
@@ -53,6 +60,14 @@ impl Dock {
 }
 
 impl DockEdge {
+    pub(super) fn margin(self, work: RECT, frame: RECT) -> i32 {
+        match self {
+            Self::Top => frame.top - work.top,
+            Self::Bottom => work.bottom - frame.bottom,
+            Self::Left => frame.left - work.left,
+            Self::Right => work.right - frame.right,
+        }
+    }
     pub(super) fn vertical(self) -> bool {
         matches!(self, Self::Left | Self::Right)
     }
@@ -97,13 +112,20 @@ impl DockEdge {
 pub(super) struct Toolbar {
     edge: DockEdge,
     pub length: i32,
+    pub padding: i32,
+    pub gap: i32,
 }
 
 impl Toolbar {
     pub(super) fn new(edge: DockEdge, slots: usize) -> Self {
+        let style = APPEARANCE_STYLE.get();
+        let padding = i32::from(style.bar_padding);
+        let gap = i32::from(style.item_gap);
         Self {
             edge,
-            length: 16 + CELL * slots as i32 + 32,
+            length: 2 * padding + (CELL + gap) * slots as i32 + 32,
+            padding,
+            gap,
         }
     }
 
@@ -169,7 +191,7 @@ mod tests {
                     bar.size(true, GRID_PAGE, true),
                 ];
                 for (w, h) in frames {
-                    let frame = dock.frame(work, w, h);
+                    let frame = dock.frame(work, w, h, dock.idle_margin());
                     let gap = match edge {
                         DockEdge::Top => frame.top - work.top,
                         DockEdge::Bottom => work.bottom - frame.bottom,
@@ -179,7 +201,7 @@ mod tests {
                     assert_eq!(gap, if mode == DockMode::AutoHide { 0 } else { 8 });
                 }
                 let slot = |(w, h), at| {
-                    let frame = dock.frame(work, w, h);
+                    let frame = dock.frame(work, w, h, dock.idle_margin());
                     let (strip, _) = edge.split(w, h);
                     let [x, y, w, h] = bar.slot(strip, at, CELL);
                     (frame.left + x, frame.top + y, w, h)

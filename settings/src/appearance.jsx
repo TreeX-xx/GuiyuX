@@ -12,23 +12,27 @@ const capsuleStyle = {
   "--cap-ink": capsule.ink.join(" "), "--cap-border": capsule.borderAlpha / 255,
 };
 
-function DockPreview({ state, style }) {
+function DockPreview({ state, style, expanded }) {
   const t = useText();
   const { edge, mode } = state.dock;
   const pins = state.bar.filter(row => row.pinned).slice(0, state.barCapacity);
   const collapse = { top: "up", bottom: "down", left: "back", right: "right" }[edge];
-  return <div className="material-preview" aria-hidden="true" data-edge={edge} data-mode={mode}
-    style={{ ...capsuleStyle, "--opacity": 1 - style.transparency / 100, "--bar-length": 48 + 64 * (pins.length + 1) }}>
+  const margin = style.edgeMargin ?? (mode === "autoHide" ? 0 : 8);
+  return <div className="material-preview" aria-hidden="true" data-edge={edge} data-mode={mode} data-open={expanded}
+    style={{ ...capsuleStyle, "--opacity": 1 - style.transparency / 100,
+      "--bar-length": 2 * style.barPadding + 32 + (64 + style.itemGap) * (pins.length + 1),
+      "--bar-padding": style.barPadding + "em", "--item-gap": style.itemGap + "em",
+      "--corner-radius": style.cornerRadius + "em", "--edge-margin": margin + "em" }}>
     <div className={'sample-island' + (style.frosted ? ' frosted' : '')}>
       <i/><i/><i/>
-      {mode === "autoHide" && <div className="sample-shortcuts">
+      <div className="sample-shortcuts">
         {pins.map(row => <span className="sample-shortcut" key={JSON.stringify(row.key)}>
           <ShortcutIcon row={row}/><span className="sample-label">{row.key.item && !row.directory
             ? row.title.replace(/\.(lnk|url)$/i, "") : row.title}</span>
         </span>)}
         <span className="sample-shortcut"><Icon name="other"/><span className="sample-label">{t("更多", "More")}</span></span>
         <span className="sample-collapse"><Icon name={collapse}/></span>
-      </div>}
+      </div>
     </div>
   </div>;
 }
@@ -39,6 +43,7 @@ export default function Appearance({ state, run, saved, failed }) {
   const [number, setNumber] = useState(String(style.transparency));
   const latest = useRef(style);
   const dragging = useRef(false);
+  const [showExpandedPreview, setShowExpandedPreview] = useState(false);
   const previousCommit = useRef(state.appearance);
   const revision = useRef(0);
 
@@ -52,12 +57,12 @@ export default function Appearance({ state, run, saved, failed }) {
       previousCommit.current = state.appearance;
       display(state.appearance);
     }
-  }, [state.appearance.frosted, state.appearance.transparency]);
+  }, [state.appearance]);
 
-  function preview(percent) {
+  function preview(field, value) {
     // Keyboard steps commit directly. Only pointer movement needs a live preview.
     if (!dragging.current) return;
-    const next = { ...latest.current, transparency: percent };
+    const next = { ...latest.current, [field]: value };
     display(next);
     previewAppearance(next, failed);
   }
@@ -95,13 +100,15 @@ export default function Appearance({ state, run, saved, failed }) {
   function endPointer() {
     if (!dragging.current) return;
     dragging.current = false;
-    if (latest.current.transparency !== previousCommit.current.transparency) {
+    if (latest.current !== previousCommit.current) {
       void commit(latest.current);
     }
   }
   return <>
-    <DockPreview state={state} style={style}/>
-    <section className="sheet">
+    <div className="appearance-preview">
+      <DockPreview state={state} style={style} expanded={showExpandedPreview}/>
+    </div>
+    <section className="sheet" onFocus={e => setShowExpandedPreview(!e.target.closest("#dock-edge, #dock-mode"))}>
       <div className="setting-row"><label htmlFor="dock-edge">{t("停靠位置", "Dock position")}</label>
         <Choice id="dock-edge" label={t("停靠位置", "Dock position")} value={state.dock.edge}
           options={[["top", t("顶部", "Top")], ["bottom", t("底部", "Bottom")],
@@ -130,13 +137,35 @@ export default function Appearance({ state, run, saved, failed }) {
       </div>
       <Slider.Root className="slider" min={0} max={100} step={1} value={[style.transparency]}
         onPointerDownCapture={() => { dragging.current = true; }}
-        onValueChange={([percent]) => preview(percent)}
+        onValueChange={([percent]) => preview("transparency", percent)}
         onValueCommit={([percent]) => void commit({ ...latest.current, transparency: percent })}
         onPointerCancel={endPointer} onLostPointerCapture={endPointer} onBlur={endPointer}>
         <Slider.Track className="slider-track"><Slider.Range className="slider-range"/></Slider.Track>
         <Slider.Thumb className="slider-thumb" aria-label={t("背景透明度","Background transparency")} aria-valuetext={style.transparency+"%"}/>
       </Slider.Root>
       <div className="scale"><span>0%</span><span>100%</span></div></div>
+    </section>
+    <h2 className="section-title">{t("展开布局", "Expanded layout")}</h2>
+    <section className="sheet" onFocus={() => setShowExpandedPreview(true)}>
+      {[
+        ["edgeMargin", t("距屏幕工作区边缘", "Distance from work area edge"), 48],
+        ["barPadding", t("快捷栏两端留白", "Toolbar end padding"), 24],
+        ["itemGap", t("快捷入口间距", "Shortcut spacing"), 24],
+        ["cornerRadius", t("面板圆角", "Panel corner radius"), 32],
+      ].map(([field, label, max]) => {
+        const value = style[field] ?? (state.dock.mode === "autoHide" ? 0 : 8);
+        return <div className="slider-setting" key={field}>
+          <div className="setting-row"><span id={field + "-label"}>{label}</span><span>{value} px</span></div>
+          <Slider.Root className="slider" min={0} max={max} step={1} value={[value]}
+            onPointerDownCapture={() => { dragging.current = true; setShowExpandedPreview(true); }}
+            onValueChange={([v]) => preview(field, v)}
+            onValueCommit={([v]) => void commit({ ...latest.current, [field]: v })}
+            onPointerCancel={endPointer} onLostPointerCapture={endPointer} onBlur={endPointer}>
+            <Slider.Track className="slider-track"><Slider.Range className="slider-range"/></Slider.Track>
+            <Slider.Thumb className="slider-thumb" aria-labelledby={field + "-label"} aria-valuetext={value + " px"}/>
+          </Slider.Root>
+        </div>;
+      })}
     </section>
   </>;
 }

@@ -24,7 +24,7 @@ pub(super) fn present(hwnd: HWND) -> io::Result<()> {
     let mut face = Bitmap::new(w, h)?;
     let style = APPEARANCE_STYLE.get();
     let high_contrast = high_contrast();
-    if capsule::active() {
+    if capsule::tucked_frame(w, h) {
         let focused = KEYBOARD.get()
             && unsafe {
                 windows_sys::Win32::UI::Input::KeyboardAndMouse::GetFocus()
@@ -129,7 +129,7 @@ pub(super) fn over(dst: u32, src: u32, opacity: u32) -> u32 {
     channel(24) << 24 | channel(16) << 16 | channel(8) << 8 | channel(0)
 }
 
-fn frost(pixel: u32, x: i32, y: i32, w: i32, h: i32) -> u32 {
+fn frost(pixel: u32, x: i32, y: i32, w: i32, h: i32, radius: f32) -> u32 {
     let transmission = 255 - (pixel >> 24);
     if transmission == 0 {
         return pixel;
@@ -139,7 +139,6 @@ fn frost(pixel: u32, x: i32, y: i32, w: i32, h: i32) -> u32 {
     // including its semicircular ends while the window is animating.
     let edge_x = x.min(w - 1 - x);
     let edge_y = y.min(h - 1 - y);
-    let radius = (ISLAND_RADIUS as f32).min(w.min(h) as f32 * 0.5);
     let rim = if edge_x == 0 || edge_y == 0 {
         1.0
     } else if (edge_x.min(edge_y) as f32) < radius && (edge_x.max(edge_y) as f32) < radius {
@@ -174,10 +173,12 @@ fn finish(
     let labels = ink.pixels();
     let pixels = face.pixels();
     let shadow = u32::from(style.transparency.saturating_sub(50)) * 180 / 50;
+    let radius = frame_radius();
+    let rim_radius = (radius as f32).min(w.min(h) as f32 * 0.5);
     for (i, pixel) in pixels.iter_mut().enumerate() {
         let (x, y) = ((i % w as usize) as i32, (i / w as usize) as i32);
         if style.frosted && style.transparency > 0 {
-            *pixel = frost(*pixel, x, y, w, h);
+            *pixel = frost(*pixel, x, y, w, h, rim_radius);
         }
         // At high transmission, a one-pixel dark edge retains legibility over
         // light windows. The glyph coverage itself stays untouched.
@@ -194,7 +195,7 @@ fn finish(
         }
         *pixel = over(*pixel, labels[i], opacity);
     }
-    clip_edges(pixels, w, h, ISLAND_RADIUS);
+    clip_edges(pixels, w, h, radius);
 }
 
 #[cfg(test)]
@@ -217,6 +218,7 @@ mod tests {
                 let style = crate::config::Appearance {
                     frosted,
                     transparency,
+                    ..Default::default()
                 };
                 let mut empty = Bitmap::new(w, h).unwrap();
                 empty.pixels().fill(0);

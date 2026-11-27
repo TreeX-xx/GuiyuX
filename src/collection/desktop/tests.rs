@@ -143,8 +143,8 @@ fn persistence_and_shell_failures_preserve_visibility_and_allow_retry() {
     fs::write(&data_file, []).unwrap();
     let files = [data_file.clone()];
     let fail_view = || Err(io::Error::other("shell unavailable"));
-    let contents = br#"{"bar_revision":1}"#;
-    fs::write(&db, contents).unwrap();
+    config::save(&db, &Settings::default()).unwrap();
+    let contents = fs::read(&db).unwrap();
     let bad_rule = organize_at(
         &db,
         &files,
